@@ -94,15 +94,19 @@ async def postback(request: Request):
 # ------------------------------
 # Telegram Bot Handlers & Buttons
 # ------------------------------
-async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+aasync def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Бот получил команду /start от пользователя: {update.message.from_user.id}")
+
     keyboard = [[InlineKeyboardButton("📊 Статистика", callback_data='stats')],
                 [InlineKeyboardButton("📋 Офферы", callback_data='offers')],
                 [InlineKeyboardButton("🔄 Конверсии", callback_data='conversions')],
                 [InlineKeyboardButton("🚀 Тест", callback_data='test_conversion')],
                 [InlineKeyboardButton("💰 Баланс", callback_data='balance')],
                 [InlineKeyboardButton("📈 Топ офферы", callback_data='top_offers')]]
+
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
+    logger.info("Кнопки отправлены пользователю.")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -122,3 +126,4 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 application.add_handler(CommandHandler("start", send_buttons))
 application.add_handler(CallbackQueryHandler(button_handler))
+
