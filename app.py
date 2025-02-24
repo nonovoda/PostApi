@@ -30,11 +30,6 @@ async def init_application():
 
     await application.start()
     logger.info("Бот запущен!")
-
-    await application.updater.start_polling()
-    logger.info("Polling запущен!")
-    logger.info("Инициализация Telegram бота завершена.")
-
 # ------------------------------
 # FastAPI сервер
 # ------------------------------
