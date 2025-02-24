@@ -95,12 +95,8 @@ async def postback(request: Request):
 # Telegram Bot Handlers & Buttons
 # ------------------------------
 async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("📊 Статистика", callback_data='stats')],
-                [InlineKeyboardButton("📋 Офферы", callback_data='offers')],
-                [InlineKeyboardButton("🔄 Конверсии", callback_data='conversions')],
-                [InlineKeyboardButton("🚀 Тест", callback_data='test_conversion')],
-                [InlineKeyboardButton("💰 Баланс", callback_data='balance')],
-                [InlineKeyboardButton("📈 Топ офферы", callback_data='top_offers')]]
+    keyboard = [[InlineKeyboardButton("📊 Статистика за день", callback_data='stats')],
+                [InlineKeyboardButton("🚀 Тестовая конверсия", callback_data='test_conversion')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
 
@@ -108,22 +104,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if query.data == "stats":
-        response = requests.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY": API_KEY})
-        await query.edit_message_text(f"📊 Статистика: {response.json()}")
-    elif query.data == "offers":
-        response = requests.get(f"{BASE_API_URL}/partner/offers", headers={"API-KEY": API_KEY})
-        await query.edit_message_text(f"📋 Офферы: {response.json()}")
-    elif query.data == "conversions":
-        response = requests.get(f"{BASE_API_URL}/partner/statistic/conversions", headers={"API-KEY": API_KEY})
-        await query.edit_message_text(f"🔄 Конверсии: {response.json()}")
+        date = datetime.now().strftime("%Y-%m-%d 00:00")
+        response = requests.get(f"{BASE_API_URL}/partner/statistic/common", 
+                                headers={"API-KEY": API_KEY},
+                                params={"date_from": date, "date_to": date, "group_by": "day", "timezone": "Europe/Moscow"})
+        await query.edit_message_text(f"📊 Статистика за день: {response.json()}")
     elif query.data == "test_conversion":
         await query.edit_message_text("🚀 Отправка тестовой конверсии...")
-    elif query.data == "balance":
-        response = requests.get(f"{BASE_API_URL}/partner/balance", headers={"API-KEY": API_KEY})
-        await query.edit_message_text(f"💰 Баланс: {response.json()}")
-    elif query.data == "top_offers":
-        response = requests.get(f"{BASE_API_URL}/partner/offers/top", headers={"API-KEY": API_KEY})
-        await query.edit_message_text(f"📈 Топ офферы: {response.json()}")
 
 application.add_handler(CommandHandler("start", send_buttons))
 application.add_handler(CallbackQueryHandler(button_handler))
+
