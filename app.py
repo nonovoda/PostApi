@@ -37,8 +37,13 @@ app = FastAPI()
 async def telegram_webhook(request: Request):
     data = await request.json()
     update = Update.de_json(data, application.bot)
-    await application.process_update(update)
-    return {"status": "ok"}
+    
+    try:
+        await application.process_update(update)
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Ошибка обработки Webhook: {e}")
+        return {"error": "Ошибка сервера"}, 500
 
 @app.post("/postback")
 async def postback(request: Request):
