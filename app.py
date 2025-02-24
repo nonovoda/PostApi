@@ -12,7 +12,11 @@ from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, Callback
 API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
+
+# Базовый URL для Alanbase Partner API
 BASE_API_URL = "https://api.alanbase.com/api/v1"
+
+# Заголовки для запросов к API (с User-Agent)
 API_HEADERS = {
     "API-KEY": API_KEY,
     "Content-Type": "application/json",
@@ -20,7 +24,7 @@ API_HEADERS = {
 }
 
 # ------------------------------
-# Настройка логирования
+# Логирование
 # ------------------------------
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -76,20 +80,20 @@ def stats():
     logger.debug("Получен запрос /stats")
     url = f"{BASE_API_URL}/partner/statistic/common"
     response = requests.get(url, headers=API_HEADERS)
-    logger.debug("Запрос статистики, статус: %s, ответ: %s", response.status_code, response.text)
+    logger.debug("Статистика, статус: %s, ответ: %s", response.status_code, response.text)
     if response.status_code == 200:
         try:
             data = response.json()
         except requests.exceptions.JSONDecodeError:
-            logger.error("Неверный формат ответа от API: %s", response.text)
+            logger.error("Неверный формат ответа от API в /stats: %s", response.text)
             return jsonify({"error": "Неверный формат ответа от API", "raw_response": response.text}), 500
 
         meta = data.get("meta", {})
         stats_message = (
             "📊 *Общая статистика:*\n"
             f"Страница: {meta.get('page', 'N/A')}\n"
-            f"Записей: {meta.get('per_page', 'N/A')}\n"
-            f"Всего: {meta.get('total_count', 'N/A')}\n"
+            f"Записей на странице: {meta.get('per_page', 'N/A')}\n"
+            f"Всего записей: {meta.get('total_count', 'N/A')}\n"
             f"Последняя страница: {meta.get('last_page', 'N/A')}\n"
         )
         logger.info("Статистика: %s", stats_message)
@@ -101,40 +105,12 @@ def stats():
         logger.error("Ошибка получения статистики: %s", response.text)
         return jsonify({"error": "Ошибка получения данных из API", "details": response.text}), 500
 
-@app.route('/balance', methods=['GET'])
-def balance():
-    logger.debug("Получен запрос /balance")
-    url = f"{BASE_API_URL}/partner/balance"
-    response = requests.get(url, headers=API_HEADERS)
-    logger.debug("Запрос баланса, статус: %s, ответ: %s", response.status_code, response.text)
-    if response.status_code == 200:
-        try:
-            data = response.json()
-        except requests.exceptions.JSONDecodeError:
-            logger.error("Неверный формат ответа от API в /balance: %s", response.text)
-            return jsonify({"error": "Неверный формат ответа от API", "raw_response": response.text}), 500
-
-        balances = data.get("data", [])
-        balance_usd = "Нет данных"
-        for entry in balances:
-            if entry.get("currency_code") == "USD":
-                balance_usd = entry.get("balance", 0)
-        balance_text = f"💰 *Ваш баланс (USD):* {balance_usd}"
-        logger.info("Баланс: %s", balance_text)
-        telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": balance_text, "parse_mode": "Markdown"}
-        requests.post(telegram_url, json=payload)
-        return jsonify({"status": "Баланс отправлен в Telegram"}), 200
-    else:
-        logger.error("Ошибка запроса баланса: %s", response.text)
-        return jsonify({"error": "Ошибка получения данных из API", "details": response.text}), 500
-
 @app.route('/offers', methods=['GET'])
 def offers():
     logger.debug("Получен запрос /offers")
     url = f"{BASE_API_URL}/partner/offers"
     response = requests.get(url, headers=API_HEADERS)
-    logger.debug("Запрос офферов, статус: %s, ответ: %s", response.status_code, response.text)
+    logger.debug("Офферы, статус: %s, ответ: %s", response.status_code, response.text)
     if response.status_code == 200:
         try:
             data = response.json()
@@ -161,7 +137,37 @@ def offers():
         requests.post(telegram_url, json=payload)
         return jsonify({"status": "Офферы отправлены в Telegram"}), 200
     else:
-        logger.error("Ошибка запроса офферов: %s", response.text)
+        logger.error("Ошибка получения офферов: %s", response.text)
+        return jsonify({"error": "Ошибка получения данных из API", "details": response.text}), 500
+
+@app.route('/conversions', methods=['GET'])
+def conversions():
+    logger.debug("Получен запрос /conversions")
+    # Для теста используем фиксированные параметры
+    params = {
+        "timezone": "Europe/Moscow",
+        "date_from": "2023-01-01 00:00:00",
+        "date_to": "2023-01-02 00:00:00"
+    }
+    url = f"{BASE_API_URL}/partner/statistic/conversions"
+    response = requests.get(url, headers=API_HEADERS, params=params)
+    logger.debug("Конверсии, статус: %s, ответ: %s", response.status_code, response.text)
+    if response.status_code == 200:
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            logger.error("Неверный формат ответа от API в /conversions: %s", response.text)
+            return jsonify({"error": "Неверный формат ответа от API", "raw_response": response.text}), 500
+
+        meta = data.get("meta", {})
+        total = meta.get("total_count", "N/A")
+        conversions_message = f"🔄 *Конверсии за период:*\nВсего конверсий: {total}"
+        telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": conversions_message, "parse_mode": "Markdown"}
+        requests.post(telegram_url, json=payload)
+        return jsonify({"status": "Конверсии отправлены в Telegram"}), 200
+    else:
+        logger.error("Ошибка получения конверсий: %s", response.text)
         return jsonify({"error": "Ошибка получения данных из API", "details": response.text}), 500
 
 # ------------------------------
@@ -171,7 +177,7 @@ def start(update: Update, context: CallbackContext) -> None:
     logger.debug("Получена команда /start от пользователя: %s", update.effective_user.username)
     keyboard = [
         [InlineKeyboardButton("Статистика", callback_data='stats')],
-        [InlineKeyboardButton("Баланс (USD)", callback_data='balance')],
+        [InlineKeyboardButton("Конверсии", callback_data='conversions')],
         [InlineKeyboardButton("Офферы", callback_data='offers')],
         [InlineKeyboardButton("Тест", callback_data='test')]
     ]
@@ -185,10 +191,10 @@ def button_handler(update: Update, context: CallbackContext) -> None:
     command = query.data
     text = ""
 
-    if command == 'balance':
-        text = get_balance()
-    elif command == 'stats':
+    if command == 'stats':
         text = "Запрос статистики отправлен."
+    elif command == 'conversions':
+        text = get_conversions()
     elif command == 'offers':
         text = get_offers()
     elif command == 'test':
@@ -199,23 +205,26 @@ def button_handler(update: Update, context: CallbackContext) -> None:
     logger.debug("Ответ бота: %s", text)
     query.edit_message_text(text=text, parse_mode='Markdown')
 
-def get_balance():
-    url = f"{BASE_API_URL}/partner/balance"
-    response = requests.get(url, headers=API_HEADERS)
+def get_conversions():
+    """Получает данные по конверсиям через API и возвращает строку с информацией."""
+    params = {
+        "timezone": "Europe/Moscow",
+        "date_from": "2023-01-01 00:00:00",
+        "date_to": "2023-01-02 00:00:00"
+    }
+    url = f"{BASE_API_URL}/partner/statistic/conversions"
+    response = requests.get(url, headers=API_HEADERS, params=params)
     if response.status_code == 200:
         try:
             data = response.json()
         except requests.exceptions.JSONDecodeError:
-            logger.error("Ошибка декодирования ответа в get_balance: %s", response.text)
+            logger.error("Ошибка декодирования ответа в get_conversions: %s", response.text)
             return "Ошибка: Некорректный ответ от API."
-        balances = data.get("data", [])
-        balance_usd = "Нет данных"
-        for entry in balances:
-            if entry.get("currency_code") == "USD":
-                balance_usd = entry.get("balance", 0)
-        return f"💰 *Ваш баланс (USD):* {balance_usd}"
+        meta = data.get("meta", {})
+        total = meta.get("total_count", "N/A")
+        return f"🔄 *Конверсии за выбранный период:*\nВсего конверсий: {total}"
     else:
-        logger.error("Ошибка API в get_balance: %s %s", response.status_code, response.text)
+        logger.error("Ошибка API в get_conversions: %s %s", response.status_code, response.text)
         return f"Ошибка API: {response.status_code} {response.text}"
 
 def get_offers():
@@ -253,7 +262,7 @@ def run_telegram_bot():
     updater.idle()
 
 # ------------------------------
-# Запуск Flask и Telegram-бота
+# Запуск Flask и Telegram-бота в отдельных потоках
 # ------------------------------
 def run_flask():
     port = int(os.getenv("PORT", 5000))
