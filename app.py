@@ -1,7 +1,7 @@
 import os
 import logging
 import asyncio
-import httpx
+import requests
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -28,8 +28,11 @@ application = Application.builder().token(TELEGRAM_TOKEN).build()
 async def init_application():
     logger.info("Запуск инициализации Telegram бота...")
     await application.initialize()
+    logger.info("Бот инициализирован!")
+
     await application.start()
     logger.info("Бот запущен!")
+
     logger.info("Инициализация Telegram бота завершена.")
 
 # ------------------------------
@@ -57,37 +60,6 @@ async def telegram_webhook(request: Request):
         logger.error(f"Ошибка обработки Webhook: {e}")
         return {"error": "Ошибка сервера"}, 500
 
-@app.post("/postback")
-async def postback(request: Request):
-    logger.info("Запрос получен в /postback!")
-    data = await request.json()
-    logger.info(f"Полученные данные: {data}")
-
-    if not data or data.get("api_key") != API_KEY:
-        logger.error("Ошибка: Неверный API-ключ")
-        return {"error": "Неверный API-ключ"}, 403
-
-    message_text = (
-        "📌 Оффер: {offer_id}\n"
-        "🛠 Подход: {sub_id_2}\n"
-        "📊 Тип конверсии: {goal}\n"
-        "⚙️ Статус: {status}\n"
-        "🎯 Кампания: {sub_id_4}\n"
-        "🎯 Адсет: {sub_id_5}\n"
-        "⏰ Время: {conversion_date}"
-    ).format(
-        offer_id=data.get("offer_id", "N/A"),
-        sub_id_2=data.get("sub_id_2", "N/A"),
-        goal=data.get("goal", "N/A"),
-        status=data.get("status", "N/A"),
-        sub_id_4=data.get("sub_id_4", "N/A"),
-        sub_id_5=data.get("sub_id_5", "N/A"),
-        conversion_date=data.get("conversion_date", "N/A")
-    )
-
-    await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message_text)
-    return {"status": "success"}
-
 # ------------------------------
 # Telegram Bot Handlers & Buttons
 # ------------------------------
@@ -96,39 +68,32 @@ async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🚀 Тестовая конверсия", callback_data='test_conversion')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
-    logger.info("Кнопки отправлены пользователю.")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    logger.info(f"Нажата кнопка: {query.data} пользователем {query.from_user.id}")
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     
     if query.data == "stats":
-        date = datetime.now().strftime("%Y-%m-%d")
-        url = f"{BASE_API_URL}/partner/statistic/common"
+        date_today = datetime.now().strftime("%Y-%m-%d 00:00")
         params = {
-            "date_from": date,
-            "date_to": date,
             "group_by": "day",
-            "timezone": "Europe/Moscow"
+            "timezone": "Europe/Moscow",
+            "date_from": date_today,
+            "date_to": date_today,
+            "currency_code": "USD"
         }
-        headers = {
-            "API-KEY": API_KEY,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers, params=params)
-        logger.info(f"Запрос к API: {response.url} | Статус: {response.status_code}")
-        
+        response = requests.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
         if response.status_code == 200:
             await query.edit_message_text(f"📊 Статистика за день: {response.json()}")
-        elif response.status_code == 418:
-            await query.edit_message_text("⚠️ Ошибка API 418: Возможно, заблокирован API-ключ или запрос некорректен.")
         else:
-            await query.edit_message_text(f"⚠️ Ошибка запроса API: {response.status_code}")
+            await query.edit_message_text(f"⚠️ Ошибка API {response.status_code}: {response.text}")
     elif query.data == "test_conversion":
         await query.edit_message_text("🚀 Отправка тестовой конверсии...")
 
 application.add_handler(CommandHandler("start", send_buttons))
 application.add_handler(CallbackQueryHandler(button_handler))
-
