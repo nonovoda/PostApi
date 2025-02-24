@@ -39,60 +39,73 @@ async def telegram_webhook():
 @app.route("/postback", methods=["POST"])
 def postback():
     data = request.get_json()
+    logger.info("Полученные данные в /postback: %s", data)
     if not data or data.get("api_key") != API_KEY:
         return jsonify({"error": "Неверный API-ключ"}), 403
 
-    message_text = (f"Новая конверсия!\n📌 Оффер: {data.get('offer_id', 'N/A')}\n")
+    message_text = (
+        "Новая конверсия!\n"
+        f"📌 Оффер: {data.get('offer_id', 'N/A')}\n"
+        f"🛠 Подход: {data.get('sub_id_2', 'N/A')}\n"
+        f"📊 Тип конверсии: {data.get('goal', 'N/A')}\n"
+        f"⚙️ Статус конверсии: {data.get('status', 'N/A')}\n"
+        f"🎯 Кампания: {data.get('sub_id_4', 'N/A')}\n"
+        f"🎯 Адсет: {data.get('sub_id_5', 'N/A')}\n"
+        f"⏰ Время конверсии: {data.get('conversion_date', 'N/A')}\n"
+    )
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message_text}
     requests.post(telegram_url, json=payload)
     return jsonify({"status": "success"}), 200
 
-# ------------------------------
-# Telegram Бот
-# ------------------------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("Статистика", callback_data='stats')],
-                [InlineKeyboardButton("Конверсии", callback_data='conversions')],
-                [InlineKeyboardButton("Офферы", callback_data='offers')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    command = query.data
-    text = ""
-    if command == 'stats':
-        text = "Запрос статистики отправлен."
-    elif command == 'conversions':
-        text = await get_conversions()
-    elif command == 'offers':
-        text = await get_offers()
-    await query.edit_message_text(text=text)
-
 async def get_conversions():
+    params = {
+        "timezone": "Europe/Moscow",
+        "date_from": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
+        "date_to": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "statuses": [0, 1, 2, 4],
+        "per_page": 1000
+    }
     url = f"{BASE_API_URL}/partner/statistic/conversions"
-    response = requests.get(url, headers=API_HEADERS)
+    response = requests.get(url, headers=API_HEADERS, params=params)
     if response.status_code == 200:
         data = response.json()
         return f"🔄 *Конверсии:* {data.get('meta', {}).get('total_count', 'N/A')}"
     return "Ошибка получения данных."
 
 async def get_offers():
+    params = {
+        "is_avaliable": 1,
+        "per_page": 100
+    }
     url = f"{BASE_API_URL}/partner/offers"
-    response = requests.get(url, headers=API_HEADERS)
+    response = requests.get(url, headers=API_HEADERS, params=params)
     if response.status_code == 200:
         data = response.json()
         return f"📋 *Офферы:* {data.get('meta', {}).get('total_count', 'N/A')}"
     return "Ошибка API."
 
-# ------------------------------
-# Запуск бота
-# ------------------------------
-application = Application.builder().token(TELEGRAM_TOKEN).build()
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CallbackQueryHandler(button_handler))
+async def get_common_stats():
+    params = {
+        "group_by": "day",
+        "timezone": "Europe/Moscow",
+        "date_from": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d 00:00"),
+        "date_to": datetime.now().strftime("%Y-%m-%d %H:%M")
+    }
+    url = f"{BASE_API_URL}/partner/statistic/common"
+    response = requests.get(url, headers=API_HEADERS, params=params)
+    if response.status_code == 200:
+        data = response.json()
+        return f"📊 Статистика за неделю:\n{data}"
+    return "Ошибка получения статистики."
+
+async def get_conversion_details(conversion_id):
+    url = f"{BASE_API_URL}/partner/statistic/conversions/{conversion_id}"
+    response = requests.get(url, headers=API_HEADERS)
+    if response.status_code == 200:
+        data = response.json()
+        return f"📊 Детали конверсии {conversion_id}:\n{data}"
+    return "Ошибка получения данных о конверсии."
 
 async def set_webhook():
     webhook_url = f"{WEBHOOK_URL}/webhook"
