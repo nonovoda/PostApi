@@ -84,9 +84,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    proxy_url = "http://vuexeu:Zd8moe@217.29.62.231:12953"
-    transport = httpx.AsyncHTTPTransport(proxy=proxy_url)
-
     if text == "📊 Статистика за день":
         date_from = datetime.now().strftime("%Y-%m-%d 00:00")
         date_to = datetime.now().strftime("%Y-%m-%d 23:59")
@@ -98,15 +95,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "date_to": date_to,
             "currency_code": "USD"
         }
-        logger.info(f"Отправка запроса на статистику через прокси: {params}")
+        logger.info(f"Отправка запроса на статистику без прокси: {params}")
 
-        async with httpx.AsyncClient(transport=transport) as client:
+        async with httpx.AsyncClient() as client:
             response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
 
         logger.info(f"Ответ API: {response.status_code} - {response.text}")
 
         message = f"📊 Статистика за день: {response.json()}" if response.status_code == 200 else f"⚠️ Ошибка API {response.status_code}: {response.text}"
         await update.message.reply_text(message)
+
     elif text == "🚀 Тестовая конверсия":
         await update.message.reply_text("🚀 Отправка тестовой конверсии...")
     elif text == "🔍 Детальная статистика":
