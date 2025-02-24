@@ -16,27 +16,25 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
 # Базовый URL для Alanbase Partner API
 BASE_API_URL = "https://api.alanbase.com/api/v1"
 
-# Заголовки для запросов к API (добавлен User-Agent)
+# Заголовки для запросов к API (с добавленным User-Agent)
 API_HEADERS = {
     "API-KEY": API_KEY,
     "Content-Type": "application/json",
     "User-Agent": "AlanbaseTelegramBot/1.0"
 }
 
-# Логирование работы бота
+# Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ------------------------------
-# Flask API (Постбеки + Статистика + Баланс)
+# Flask API (Постбеки + Тест + Статистика + Баланс + Офферы)
 # ------------------------------
 app = Flask(__name__)
 
 @app.route('/postback', methods=['GET', 'POST'])
 def postback():
-    """
-    Принимает данные от партнёрской программы и отправляет в Telegram.
-    """
+    """Принимает данные от партнёрской программы и пересылает их в Telegram."""
     data = request.get_json() or request.args
     if not data:
         return jsonify({"error": "Нет данных в запросе"}), 400
@@ -64,9 +62,7 @@ def postback():
 
 @app.route('/test', methods=['GET'])
 def test():
-    """
-    Тестовый endpoint для отправки тестового сообщения в Telegram.
-    """
+    """Тестовый endpoint для отправки тестового сообщения в Telegram."""
     test_message = "Тестовое сообщение!\nПроверка работы бота."
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": test_message, "parse_mode": "Markdown"}
@@ -75,9 +71,7 @@ def test():
 
 @app.route('/stats', methods=['GET'])
 def stats():
-    """
-    Получает общую статистику из API и отправляет в Telegram.
-    """
+    """Получает общую статистику из API и отправляет её в Telegram."""
     url = f"{BASE_API_URL}/partner/statistic/common"
     response = requests.get(url, headers=API_HEADERS)
     if response.status_code == 200:
@@ -90,8 +84,8 @@ def stats():
         stats_message = (
             "📊 *Общая статистика:*\n"
             f"Страница: {meta.get('page', 'N/A')}\n"
-            f"Записей: {meta.get('per_page', 'N/A')}\n"
-            f"Всего: {meta.get('total_count', 'N/A')}\n"
+            f"Записей на странице: {meta.get('per_page', 'N/A')}\n"
+            f"Всего записей: {meta.get('total_count', 'N/A')}\n"
             f"Последняя страница: {meta.get('last_page', 'N/A')}\n"
         )
 
@@ -104,9 +98,7 @@ def stats():
 
 @app.route('/balance', methods=['GET'])
 def balance():
-    """
-    Получает баланс (только USD) из API и отправляет в Telegram.
-    """
+    """Получает баланс (только USD) из API и отправляет в Telegram."""
     url = f"{BASE_API_URL}/partner/balance"
     response = requests.get(url, headers=API_HEADERS)
     if response.status_code == 200:
@@ -129,6 +121,39 @@ def balance():
     else:
         return jsonify({"error": "Ошибка получения данных из API", "details": response.text}), 500
 
+@app.route('/offers', methods=['GET'])
+def offers():
+    """Получает список офферов из API и отправляет краткую информацию в Telegram."""
+    url = f"{BASE_API_URL}/partner/offers"
+    response = requests.get(url, headers=API_HEADERS)
+    if response.status_code == 200:
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            return jsonify({"error": "Неверный формат ответа от API", "raw_response": response.text}), 500
+
+        offers_list = data.get("data", [])
+        meta = data.get("meta", {})
+        if not offers_list:
+            offers_text = "⚠️ Офферы не найдены."
+        else:
+            offers_text = "📋 *Список офферов:*\n"
+            offers_text += f"Всего офферов: {meta.get('total_count', 'N/A')}\n"
+            # Можно вывести, например, первые 3 оффера
+            for offer in offers_list[:3]:
+                name = offer.get("name", "N/A")
+                offer_id = offer.get("id", "N/A")
+                offers_text += f"🔹 {name} (ID: {offer_id})\n"
+            if meta.get("total_count", 0) > 3:
+                offers_text += "… и другие"
+        
+        telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": offers_text, "parse_mode": "Markdown"}
+        requests.post(telegram_url, json=payload)
+        return jsonify({"status": "Офферы отправлены в Telegram"}), 200
+    else:
+        return jsonify({"error": "Ошибка получения данных из API", "details": response.text}), 500
+
 # ------------------------------
 # Telegram-бот с inline-кнопками
 # ------------------------------
@@ -137,13 +162,14 @@ def start(update: Update, context: CallbackContext) -> None:
     keyboard = [
         [InlineKeyboardButton("Статистика", callback_data='stats')],
         [InlineKeyboardButton("Баланс (USD)", callback_data='balance')],
+        [InlineKeyboardButton("Офферы", callback_data='offers')],
         [InlineKeyboardButton("Тест", callback_data='test')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
 
 def button_handler(update: Update, context: CallbackContext) -> None:
-    """Обрабатывает нажатия на inline-кнопки."""
+    """Обрабатывает нажатия на inline-кнопки и вызывает соответствующие API-запросы."""
     query = update.callback_query
     query.answer()
     command = query.data
@@ -152,7 +178,9 @@ def button_handler(update: Update, context: CallbackContext) -> None:
     if command == 'balance':
         text = get_balance()
     elif command == 'stats':
-        text = "Запрос статистики отправлен."  # Можно заменить вызовом функции stats(), если хотите возвращать статус
+        text = "Запрос статистики отправлен."  # Можно расширить вызовом функции stats()
+    elif command == 'offers':
+        text = get_offers()
     elif command == 'test':
         text = "Тестовое сообщение отправлено."
     else:
@@ -175,6 +203,31 @@ def get_balance():
             if entry.get("currency_code") == "USD":
                 balance_usd = entry.get("balance", 0)
         return f"💰 *Ваш баланс (USD):* {balance_usd}"
+    else:
+        return f"Ошибка API: {response.status_code} {response.text}"
+
+def get_offers():
+    """Получает список офферов через API и возвращает краткую информацию."""
+    url = f"{BASE_API_URL}/partner/offers"
+    response = requests.get(url, headers=API_HEADERS)
+    if response.status_code == 200:
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            return "Ошибка: Некорректный ответ от API."
+        offers_list = data.get("data", [])
+        meta = data.get("meta", {})
+        if not offers_list:
+            return "⚠️ Офферы не найдены."
+        offers_text = "📋 *Список офферов:*\n"
+        offers_text += f"Всего офферов: {meta.get('total_count', 'N/A')}\n"
+        for offer in offers_list[:3]:
+            name = offer.get("name", "N/A")
+            offer_id = offer.get("id", "N/A")
+            offers_text += f"🔹 {name} (ID: {offer_id})\n"
+        if meta.get("total_count", 0) > 3:
+            offers_text += "… и другие"
+        return offers_text
     else:
         return f"Ошибка API: {response.status_code} {response.text}"
 
