@@ -2,11 +2,10 @@ import os
 import logging
 import asyncio
 import httpx
-import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from fastapi import FastAPI, Request
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ------------------------------
 # Конфигурация
@@ -37,10 +36,6 @@ async def init_application():
 # ------------------------------
 app = FastAPI()
 
-@app.get("/health")
-async def health_check():
-    return {"status": "ok", "message": "Bot is running"}
-
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     logger.info("Запрос получен в /webhook")
@@ -65,31 +60,34 @@ async def telegram_webhook(request: Request):
         return {"error": "Ошибка сервера"}, 500
 
 # ------------------------------
-# Telegram Bot Handlers & Buttons
+# Telegram Bot Handlers & Reply-кнопки
 # ------------------------------
-async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("📊 Статистика за день", callback_data='stats')],
-                [InlineKeyboardButton("🚀 Тестовая конверсия", callback_data='test_conversion')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [["📊 Статистика за день", "🚀 Тестовая конверсия"],
+                ["🔍 Детальная статистика", "📈 Топ офферы"],
+                ["🔄 Обновить данные"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
     await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
 
-import httpx
-
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.message.text
+    if update.message:
+        text = update.message.text
+    elif update.callback_query:
+        text = update.callback_query.data
+        await update.callback_query.answer()
+    else:
+        return
+
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    # Прокси-сервер
     proxy_url = "http://vuexeu:Zd8moe@217.29.62.231:12953"
-    
-    # Создаём прокси-транспорт
     transport = httpx.AsyncHTTPTransport(proxy=proxy_url)
 
-    if query == "📊 Статистика за день":
+    if text == "📊 Статистика за день":
         date_from = datetime.now().strftime("%Y-%m-%d 00:00")
         date_to = datetime.now().strftime("%Y-%m-%d 23:59")
 
@@ -107,18 +105,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         logger.info(f"Ответ API: {response.status_code} - {response.text}")
 
-        if response.status_code == 200:
-            await update.message.reply_text(f"📊 Статистика за день: {response.json()}")
-        elif response.status_code == 422:
-            await update.message.reply_text("⚠️ Ошибка 422: Неправильные параметры запроса.")
-        elif response.status_code == 418:
-            await update.message.reply_text("⚠️ Ошибка 418: API отклонило запрос. Пробуем через прокси.")
-        else:
-            await update.message.reply_text(f"⚠️ Ошибка API {response.status_code}: {response.text}")
+        message = f"📊 Статистика за день: {response.json()}" if response.status_code == 200 else f"⚠️ Ошибка API {response.status_code}: {response.text}"
+        await update.message.reply_text(message)
+    elif text == "🚀 Тестовая конверсия":
+        await update.message.reply_text("🚀 Отправка тестовой конверсии...")
+    elif text == "🔍 Детальная статистика":
+        await update.message.reply_text("🔍 Запрос детальной статистики...")
+    elif text == "📈 Топ офферы":
+        await update.message.reply_text("📈 Запрос списка топ офферов...")
+    elif text == "🔄 Обновить данные":
+        await update.message.reply_text("🔄 Данные обновлены!")
 
-    elif query.data == "test_conversion":
-        await query.edit_message_text("🚀 Отправка тестовой конверсии...")
-
-application.add_handler(CommandHandler("start", send_buttons))
-application.add_handler(CallbackQueryHandler(button_handler))
-
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
