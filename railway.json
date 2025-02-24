@@ -1,0 +1,11 @@
+{
+  "build": {
+    "env": "python3",
+    "commands": [
+      "pip install -r requirements.txt"
+    ]
+  },
+  "deploy": {
+    "start": "gunicorn app:app"
+  }
+}
