@@ -95,40 +95,35 @@ async def postback(request: Request):
 # Telegram Bot Handlers & Buttons
 # ------------------------------
 async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info(f"Бот получил команду /start от пользователя: {update.message.from_user.id}")
-
     keyboard = [[InlineKeyboardButton("📊 Статистика", callback_data='stats')],
                 [InlineKeyboardButton("📋 Офферы", callback_data='offers')],
                 [InlineKeyboardButton("🔄 Конверсии", callback_data='conversions')],
                 [InlineKeyboardButton("🚀 Тест", callback_data='test_conversion')],
                 [InlineKeyboardButton("💰 Баланс", callback_data='balance')],
                 [InlineKeyboardButton("📈 Топ офферы", callback_data='top_offers')]]
-
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
-    logger.info("Кнопки отправлены пользователю.")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # Подтверждаем нажатие кнопки
-    
+    await query.answer()
     if query.data == "stats":
-        response = "📊 Запрос статистики за 1, 7 и 30 дней..."
+        response = requests.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY": API_KEY})
+        await query.edit_message_text(f"📊 Статистика: {response.json()}")
     elif query.data == "offers":
-        response = "📋 Запрос списка офферов..."
+        response = requests.get(f"{BASE_API_URL}/partner/offers", headers={"API-KEY": API_KEY})
+        await query.edit_message_text(f"📋 Офферы: {response.json()}")
     elif query.data == "conversions":
-        response = "🔄 Запрос списка конверсий..."
+        response = requests.get(f"{BASE_API_URL}/partner/statistic/conversions", headers={"API-KEY": API_KEY})
+        await query.edit_message_text(f"🔄 Конверсии: {response.json()}")
     elif query.data == "test_conversion":
-        response = "🚀 Отправка тестовой конверсии..."
+        await query.edit_message_text("🚀 Отправка тестовой конверсии...")
     elif query.data == "balance":
-        response = "💰 Запрос баланса аккаунта..."
+        response = requests.get(f"{BASE_API_URL}/partner/balance", headers={"API-KEY": API_KEY})
+        await query.edit_message_text(f"💰 Баланс: {response.json()}")
     elif query.data == "top_offers":
-        response = "📈 Запрос топовых офферов..."
-    else:
-        response = "⚠️ Неизвестная команда!"
-
-    # Гарантируем, что бот отправляет ответ
-    await query.edit_message_text(text=response)
+        response = requests.get(f"{BASE_API_URL}/partner/offers/top", headers={"API-KEY": API_KEY})
+        await query.edit_message_text(f"📈 Топ офферы: {response.json()}")
 
 application.add_handler(CommandHandler("start", send_buttons))
 application.add_handler(CallbackQueryHandler(button_handler))
