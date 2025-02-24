@@ -1,7 +1,8 @@
 import os
 import logging
 import asyncio
-import requests
+import httpx
+import uuid
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,8 +15,8 @@ API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
 BASE_API_URL = "https://api.alanbase.com/v1"
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://apiposts-production-1dea.up.railway.app/webhook")
-PORT = int(os.environ.get("PORT", 8080))
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-bot.onrender.com/webhook")
+PORT = int(os.environ.get("PORT", 8000))
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,39 +27,38 @@ logger = logging.getLogger(__name__)
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 async def init_application():
-    logger.info("Запуск инициализации Telegram бота...")
+    logger.info("Запуск Telegram бота...")
     await application.initialize()
-    logger.info("Бот инициализирован!")
-
     await application.start()
     logger.info("Бот запущен!")
-
-    logger.info("Инициализация Telegram бота завершена.")
 
 # ------------------------------
 # FastAPI сервер
 # ------------------------------
 app = FastAPI()
 
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "message": "Bot is running"}
+
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
-    logger.info("Запрос получен в /webhook!")
+    logger.info("Запрос получен в /webhook")
     try:
         data = await request.json()
+        logger.info(f"Полученные данные: {data}")
     except Exception as e:
-        logger.error(f"Ошибка парсинга JSON: {e}")
+        logger.error(f"Ошибка JSON: {e}")
         return {"error": "Некорректный JSON"}, 400
-    
-    logger.info(f"Полученные данные: {data}")
+
     update = Update.de_json(data, application.bot)
-    
+
     if not application.running:
-        logger.warning("Telegram Application не запущено перед Webhook. Принудительная инициализация...")
+        logger.warning("Telegram Application не запущено. Инициализируем...")
         await init_application()
 
     try:
         await application.process_update(update)
-        logger.info("Webhook успешно обработан.")
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"Ошибка обработки Webhook: {e}")
@@ -81,26 +81,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-    
+
     if query.data == "stats":
-        date_today = datetime.now().strftime("%Y-%m-%d 00:00")
+        date_today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
             "date_from": date_today,
             "date_to": date_today,
-            "currency_code": "USD"
+            "currency_code": "USD",
+            "nonce": str(uuid.uuid4())  # Уникальный параметр для предотвращения кэширования
         }
         logger.info(f"Отправка запроса на статистику: {params}")
-        response = requests.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
+
         logger.info(f"Ответ API: {response.status_code} - {response.text}")
-        
+
         if response.status_code == 200:
             await query.edit_message_text(f"📊 Статистика за день: {response.json()}")
+        elif response.status_code == 422:
+            await query.edit_message_text("⚠️ Ошибка 422: Неправильные параметры запроса.")
         else:
             await query.edit_message_text(f"⚠️ Ошибка API {response.status_code}: {response.text}")
+
     elif query.data == "test_conversion":
         await query.edit_message_text("🚀 Отправка тестовой конверсии...")
 
 application.add_handler(CommandHandler("start", send_buttons))
 application.add_handler(CallbackQueryHandler(button_handler))
+
