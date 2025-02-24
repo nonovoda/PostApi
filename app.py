@@ -52,6 +52,28 @@ def postback():
     else:
         return jsonify({"error": "Ошибка при отправке сообщения в Telegram"}), 500
 
+@app.route('/test', methods=['GET'])
+def test():
+    """
+    Endpoint для отправки тестового сообщения в Telegram.
+    Используйте этот endpoint для проверки работоспособности бота.
+    """
+    test_message = (
+        "Тестовое сообщение!\n"
+        "Проверка работы Telegram Postback Bot."
+    )
+    telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": test_message,
+        "parse_mode": "Markdown"
+    }
+    response = requests.post(telegram_url, json=payload)
+    if response.status_code == 200:
+        return jsonify({"status": "Тестовое сообщение успешно отправлено"}), 200
+    else:
+        return jsonify({"error": "Ошибка при отправке тестового сообщения", "response": response.text}), 500
+
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
