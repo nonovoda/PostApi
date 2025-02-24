@@ -60,55 +60,36 @@ async def telegram_webhook(request: Request):
         logger.error(f"Ошибка обработки Webhook: {e}")
         return {"error": "Ошибка сервера"}, 500
 
-# ------------------------------
-# API-запросы к ПП
-# ------------------------------
-async def get_common_stats():
-    url = f"{BASE_API_URL}/partner/statistic/common"
-    params = {
-        "group_by": "day",
-        "timezone": "Europe/Moscow",
-        "date_from": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d 00:00"),
-        "date_to": datetime.now().strftime("%Y-%m-%d %H:%M"),
-    }
-    response = requests.get(url, headers={"API-KEY": API_KEY}, params=params)
-    return response.json() if response.status_code == 200 else {"error": "Ошибка получения статистики"}
+@app.post("/postback")
+async def postback(request: Request):
+    logger.info("Запрос получен в /postback!")
+    data = await request.json()
+    logger.info(f"Полученные данные: {data}")
 
-async def get_offers():
-    url = f"{BASE_API_URL}/partner/offers"
-    response = requests.get(url, headers={"API-KEY": API_KEY})
-    return response.json() if response.status_code == 200 else {"error": "Ошибка получения офферов"}
+    if not data or data.get("api_key") != API_KEY:
+        logger.error("Ошибка: Неверный API-ключ")
+        return {"error": "Неверный API-ключ"}, 403
 
-async def get_conversions():
-    url = f"{BASE_API_URL}/partner/statistic/conversions"
-    params = {
-        "timezone": "Europe/Moscow",
-        "date_from": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
-        "date_to": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "statuses": [0, 1, 2, 4],
-        "per_page": 100
-    }
-    response = requests.get(url, headers={"API-KEY": API_KEY}, params=params)
-    return response.json() if response.status_code == 200 else {"error": "Ошибка получения конверсий"}
+    message_text = (
+        "📌 Оффер: {offer_id}\n"
+        "🛠 Подход: {sub_id_2}\n"
+        "📊 Тип конверсии: {goal}\n"
+        "⚙️ Статус: {status}\n"
+        "🎯 Кампания: {sub_id_4}\n"
+        "🎯 Адсет: {sub_id_5}\n"
+        "⏰ Время: {conversion_date}"
+    ).format(
+        offer_id=data.get("offer_id", "N/A"),
+        sub_id_2=data.get("sub_id_2", "N/A"),
+        goal=data.get("goal", "N/A"),
+        status=data.get("status", "N/A"),
+        sub_id_4=data.get("sub_id_4", "N/A"),
+        sub_id_5=data.get("sub_id_5", "N/A"),
+        conversion_date=data.get("conversion_date", "N/A")
+    )
 
-# ------------------------------
-# Telegram Bot Handlers
-# ------------------------------
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stats = await get_common_stats()
-    await update.message.reply_text(f"📊 Статистика: {stats}")
-
-async def offers_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    offers = await get_offers()
-    await update.message.reply_text(f"📋 Офферы: {offers}")
-
-async def conversions_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conversions = await get_conversions()
-    await update.message.reply_text(f"🔄 Конверсии: {conversions}")
-
-application.add_handler(CommandHandler("stats", stats_command))
-application.add_handler(CommandHandler("offers", offers_command))
-application.add_handler(CommandHandler("conversions", conversions_command))
+    await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message_text)
+    return {"status": "success"}
 
 # ------------------------------
 # Установка Webhook
