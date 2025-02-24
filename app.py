@@ -7,18 +7,27 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 
 # ------------------------------
-# Конфигурация и переменные окружения
+# Конфигурация
 # ------------------------------
-API_KEY = os.getenv("PP_API_KEY", "5KH7dec1ptNTRmGVBLB1gmKXMz0EToJmLjUzO9mi7LYiON2S1Ri4n2166yqmcX2o")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "7643560524:AAGX9QB8C-STpWKxC0bqWFqzFIu0WmN8ses")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "802154146")
+API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
 
-# Настройка логирования для Telegram бота
+# Базовый URL для Alanbase Partner API
+BASE_API_URL = "https://api.alanbase.com/v1"
+
+# Заголовки для запросов к API
+API_HEADERS = {
+    "API-KEY": API_KEY,
+    "Content-Type": "application/json"
+}
+
+# Настройка логирования для Telegram‑бота
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ------------------------------
-# Flask-приложение для обработки HTTP-запросов
+# Flask‑приложение для обработки HTTP‑запросов
 # ------------------------------
 app = Flask(__name__)
 
@@ -26,9 +35,8 @@ app = Flask(__name__)
 def postback():
     """
     Принимает данные от партнёрской программы (POST/GET),
-    проверяет API ключ и пересылает информацию в Telegram.
+    проверяет API‑ключ и пересылает информацию в Telegram.
     """
-    # Извлекаем данные из запроса (JSON, form или query-параметры)
     if request.method == 'POST':
         data = request.get_json() or request.form
     else:
@@ -37,13 +45,11 @@ def postback():
     if not data:
         return jsonify({"error": "Нет данных в запросе"}), 400
 
-    # Проверка API ключа
     if not data.get('api_key'):
-        return jsonify({"error": "Не передан API ключ"}), 400
+        return jsonify({"error": "Не передан API‑ключ"}), 400
     if data.get('api_key') != API_KEY:
-        return jsonify({"error": "Неверный API ключ"}), 403
+        return jsonify({"error": "Неверный API‑ключ"}), 403
 
-    # Формирование сообщения с данными конверсии
     message_text = (
         "Новая конверсия!\n"
         f"📌 Оффер: {data.get('offer_id', 'N/A')}\n"
@@ -55,7 +61,6 @@ def postback():
         f"⏰ Время конверсии: {data.get('conversion_date', 'N/A')}\n"
     )
 
-    # Отправка сообщения в Telegram
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -63,7 +68,6 @@ def postback():
         "parse_mode": "Markdown"
     }
     response = requests.post(telegram_url, json=payload)
-
     if response.status_code == 200:
         return jsonify({"status": "success"}), 200
     else:
@@ -74,10 +78,7 @@ def test():
     """
     Тестовый endpoint для отправки тестового сообщения в Telegram.
     """
-    test_message = (
-        "Тестовое сообщение!\n"
-        "Проверка работы Telegram Postback Bot."
-    )
+    test_message = "Тестовое сообщение!\nПроверка работы бота."
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -93,19 +94,24 @@ def test():
 @app.route('/stats', methods=['GET'])
 def stats():
     """
-    Endpoint для запроса статистики из ПП и отправки её в Telegram.
+    Endpoint для запроса общей статистики через API.
+    Используется GET‑запрос к /partner/statistic/common.
     """
-    pp_stats_url = "https://cabinet.4rabetpartner.com/api/partner/stats"
-    headers = {"Authorization": f"Bearer {API_KEY}"}
-    response = requests.get(pp_stats_url, headers=headers)
+    url = f"{BASE_API_URL}/partner/statistic/common"
+    response = requests.get(url, headers=API_HEADERS)
     if response.status_code == 200:
-        data = response.json()
-        stats_message = (
-            "📊 *Статистика ПП:*\n"
-            f"Конверсии: {data.get('conversions', 'N/A')}\n"
-            f"Доход: {data.get('revenue', 'N/A')}\n"
-            f"Баланс: {data.get('balance', 'N/A')}\n"
-        )
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            return jsonify({"error": "Неверный формат ответа от API", "raw_response": response.text}), 500
+
+        meta = data.get("meta", {})
+        stats_message = "📊 *Общая статистика:*\n"
+        stats_message += f"Страница: {meta.get('page', 'N/A')}\n"
+        stats_message += f"Записей на странице: {meta.get('per_page', 'N/A')}\n"
+        stats_message += f"Всего записей: {meta.get('total_count', 'N/A')}\n"
+        stats_message += f"Последняя страница: {meta.get('last_page', 'N/A')}\n"
+
         telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
@@ -118,47 +124,45 @@ def stats():
         else:
             return jsonify({"error": "Ошибка отправки данных в Telegram"}), 500
     else:
-        return jsonify({"error": "Ошибка получения данных из ПП", "details": response.text}), 500
+        return jsonify({"error": "Ошибка получения данных из API", "details": response.text}), 500
 
-@app.route('/balance', methods=['GET'])
-def balance():
+@app.route('/wallet', methods=['GET'])
+def wallet():
     """
-    Endpoint для запроса актуального баланса из ПП.
-    Обрабатывает ответ API с проверкой корректности JSON.
+    Endpoint для запроса информации о кошельке.
+    Используется GET‑запрос к /partner/wallet.
     """
-    pp_balance_url = "https://cabinet.4rabetpartner.com/api/partner/balance"
-    headers = {"Authorization": f"Bearer {API_KEY}"}
-    response = requests.get(pp_balance_url, headers=headers)
-    try:
-        data = response.json()
-    except requests.exceptions.JSONDecodeError:
-        return jsonify({
-            "error": "Неверный формат ответа от API, JSON не распарсен",
-            "raw_response": response.text
-        }), 500
+    url = f"{BASE_API_URL}/partner/wallet"
+    response = requests.get(url, headers=API_HEADERS)
+    if response.status_code == 200:
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            return jsonify({"error": "Неверный формат ответа от API", "raw_response": response.text}), 500
 
-    current_balance = data.get("balance", "N/A")
-    message_text = (
-        "💰 *Актуальный баланс:*\n"
-        f"Баланс: {current_balance}\n"
-    )
-    telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message_text,
-        "parse_mode": "Markdown"
-    }
-    tg_response = requests.post(telegram_url, json=payload)
-    if tg_response.status_code == 200:
-        return jsonify({"status": "Баланс отправлен в Telegram"}), 200
+        # Предположим, что API возвращает данные о кошельке в ключе 'wallet'
+        wallet_value = data.get("wallet")
+        if wallet_value is None:
+            wallet_message = "💰 *Кошелёк:*\nИнформация о кошельке не предоставлена API."
+        else:
+            wallet_message = f"💰 *Актуальный кошелёк:*\n{wallet_value}"
+
+        telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": wallet_message,
+            "parse_mode": "Markdown"
+        }
+        tg_response = requests.post(telegram_url, json=payload)
+        if tg_response.status_code == 200:
+            return jsonify({"status": "Информация о кошельке отправлена в Telegram"}), 200
+        else:
+            return jsonify({"error": "Ошибка отправки информации о кошельке в Telegram", "details": tg_response.text}), 500
     else:
-        return jsonify({
-            "error": "Ошибка отправки баланса в Telegram",
-            "details": tg_response.text
-        }), 500
+        return jsonify({"error": "Ошибка запроса данных из API", "details": response.text}), 500
 
 # ------------------------------
-# Telegram Bot с inline-кнопками
+# Telegram Bot с inline‑кнопками
 # ------------------------------
 def start(update: Update, context: CallbackContext) -> None:
     """
@@ -167,57 +171,63 @@ def start(update: Update, context: CallbackContext) -> None:
     """
     keyboard = [
         [InlineKeyboardButton("Статистика", callback_data='stats')],
-        [InlineKeyboardButton("Баланс", callback_data='balance')],
-        [InlineKeyboardButton("Тест", callback_data='test')],
+        [InlineKeyboardButton("Кошелёк", callback_data='wallet')],
+        [InlineKeyboardButton("Тест", callback_data='test')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
 
 def button_handler(update: Update, context: CallbackContext) -> None:
     """
-    Обработчик нажатий на inline-кнопки.
-    В зависимости от выбранной кнопки отправляет запрос к API ПП.
+    Обработчик нажатий на inline‑кнопки.
+    Выполняет соответствующий запрос к API в зависимости от выбранной команды.
     """
     query = update.callback_query
-    query.answer()  # Подтверждаем получение callback-запроса
+    query.answer()
     command = query.data
     text = ""
-    
+
     if command == 'stats':
-        headers = {"Authorization": f"Bearer {API_KEY}"}
-        response = requests.get("https://cabinet.4rabetpartner.com/api/partner/stats", headers=headers)
+        url = f"{BASE_API_URL}/partner/statistic/common"
+        response = requests.get(url, headers=API_HEADERS)
         if response.status_code == 200:
-            data = response.json()
-            text = (
-                "📊 *Статистика ПП:*\n"
-                f"Конверсии: {data.get('conversions', 'N/A')}\n"
-                f"Доход: {data.get('revenue', 'N/A')}\n"
-                f"Баланс: {data.get('balance', 'N/A')}\n"
-            )
+            try:
+                data = response.json()
+                meta = data.get("meta", {})
+                text = ("📊 *Общая статистика:*\n" +
+                        f"Страница: {meta.get('page', 'N/A')}\n" +
+                        f"Записей: {meta.get('per_page', 'N/A')}\n" +
+                        f"Всего: {meta.get('total_count', 'N/A')}\n" +
+                        f"Последняя страница: {meta.get('last_page', 'N/A')}\n")
+            except requests.exceptions.JSONDecodeError:
+                text = "Ошибка декодирования ответа от API."
         else:
             text = f"Ошибка получения статистики: {response.text}"
-    elif command == 'balance':
-        headers = {"Authorization": f"Bearer {API_KEY}"}
-        response = requests.get("https://cabinet.4rabetpartner.com/api/partner/balance", headers=headers)
-        try:
-            data = response.json()
-        except requests.exceptions.JSONDecodeError:
-            text = f"Ошибка декодирования JSON: {response.text}"
+    elif command == 'wallet':
+        url = f"{BASE_API_URL}/partner/wallet"
+        response = requests.get(url, headers=API_HEADERS)
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                wallet_value = data.get("wallet")
+                if wallet_value is None:
+                    text = "💰 *Кошелёк:*\nИнформация о кошельке не предоставлена API."
+                else:
+                    text = f"💰 *Актуальный кошелёк:*\n{wallet_value}"
+            except requests.exceptions.JSONDecodeError:
+                text = "Ошибка декодирования ответа от API."
         else:
-            text = (
-                "💰 *Актуальный баланс:*\n"
-                f"Баланс: {data.get('balance', 'N/A')}\n"
-            )
+            text = f"Ошибка получения данных о кошельке: {response.text}"
     elif command == 'test':
         text = "Тестовое сообщение!\nПроверка работы бота."
     else:
         text = "Неизвестная команда."
-    
+
     query.edit_message_text(text=text, parse_mode='Markdown')
 
 def run_telegram_bot():
     """
-    Запуск Telegram-бота с использованием long polling.
+    Запуск Telegram‑бота с использованием long polling.
     """
     updater = Updater(TELEGRAM_TOKEN)
     dispatcher = updater.dispatcher
@@ -227,14 +237,14 @@ def run_telegram_bot():
     updater.idle()
 
 # ------------------------------
-# Функция для запуска Flask-приложения
+# Функция для запуска Flask‑приложения
 # ------------------------------
 def run_flask():
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
 
 # ------------------------------
-# Основной блок запуска: одновременно запускаем Flask и Telegram-бота
+# Основной блок: одновременный запуск Flask и Telegram‑бота
 # ------------------------------
 if __name__ == '__main__':
     flask_thread = Thread(target=run_flask)
