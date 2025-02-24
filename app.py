@@ -94,7 +94,7 @@ async def postback(request: Request):
 # ------------------------------
 # Telegram Bot Handlers & Buttons
 # ------------------------------
-aasync def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Бот получил команду /start от пользователя: {update.message.from_user.id}")
 
     keyboard = [[InlineKeyboardButton("📊 Статистика", callback_data='stats')],
@@ -126,3 +126,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 application.add_handler(CommandHandler("start", send_buttons))
 application.add_handler(CallbackQueryHandler(button_handler))
+
+# ------------------------------
+# Установка Webhook
+# ------------------------------
+async def main():
+    logger.info("Вызов main()...")
+    await init_application()
+    logger.info(f"Установка Webhook: {WEBHOOK_URL}/webhook")
+    await application.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+    logger.info("Webhook установлен!")
+
+if name == "main":
+    import uvicorn
+
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
