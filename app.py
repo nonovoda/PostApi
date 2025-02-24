@@ -1,6 +1,8 @@
 import os
 import logging
 import requests
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, jsonify
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -22,27 +24,29 @@ API_HEADERS = {
     "User-Agent": "AlanbaseTelegramBot/1.0"
 }
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ------------------------------
 # Инициализация Telegram-бота
 # ------------------------------
 application = Application.builder().token(TELEGRAM_TOKEN).build()
+executor = ThreadPoolExecutor(max_workers=5)  # Создаем пул потоков
 
 # ------------------------------
 # Flask API
 # ------------------------------
 app = Flask(__name__)
 
-import asyncio
+def process_telegram_update(update):
+    """Обрабатываем обновления в отдельном потоке."""
+    asyncio.run(application.process_update(update))
 
 @app.route("/webhook", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(), application.bot)
-    asyncio.run(application.process_update(update))  # Запуск через asyncio.run()
+    executor.submit(process_telegram_update, update)  # Запускаем обработку в потоке
     return jsonify({"status": "success"}), 200
-
 
 @app.route("/postback", methods=["POST"])
 def postback():
@@ -84,6 +88,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     command = query.data
     text = ""
+
     if command == 'stats':
         text = "Запрос статистики отправлен."
     elif command == 'conversions':
@@ -94,6 +99,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "Тестовое сообщение отправлено."
     else:
         text = "Неизвестная команда."
+
     await query.edit_message_text(text=text)
 
 # ------------------------------
