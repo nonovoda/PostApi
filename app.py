@@ -43,14 +43,16 @@ app = FastAPI()
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     logger.info("Запрос получен в /webhook!")
+
+    # Гарантируем, что бот запущен перед обработкой Webhook
+    if not application.running:
+        logger.warning("Telegram Application не запущено перед Webhook. Принудительная инициализация...")
+        await init_application()  # Запускаем бота принудительно!
+
     data = await request.json()
     logger.info(f"Полученные данные: {data}")
 
     update = Update.de_json(data, application.bot)
-    
-    if not application.running:
-        logger.error("Ошибка: Telegram Application не запущено перед Webhook.")
-        return {"error": "Application не запущено"}, 500
 
     try:
         await application.process_update(update)
@@ -106,5 +108,5 @@ if __name__ == "__main__":
     import uvicorn
 
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    loop.run_until_complete(main())  # Запускаем бота перед сервером FastAPI!
     uvicorn.run(app, host="0.0.0.0", port=PORT)
