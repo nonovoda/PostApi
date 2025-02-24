@@ -12,7 +12,7 @@ API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
 BASE_API_URL = "https://api.alanbase.com/api/v1"
-WEBHOOK_URL = "https://apiposts-production-1dea.up.railway.app/webhook"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://apiposts-production-1dea.up.railway.app/webhook")
 PORT = int(os.getenv("PORT", 5000))
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -24,9 +24,16 @@ logger = logging.getLogger(__name__)
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 async def init_application():
+    logger.info("Запуск инициализации Telegram бота...")
     await application.initialize()
+    logger.info("Бот инициализирован!")
+
     await application.start()
+    logger.info("Бот запущен!")
+
     await application.updater.start_polling()
+    logger.info("Polling запущен!")
+    logger.info("Инициализация Telegram бота завершена.")
 
 # ------------------------------
 # FastAPI сервер
@@ -35,36 +42,23 @@ app = FastAPI()
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
+    logger.info("Запрос получен в /webhook!")
     data = await request.json()
+    logger.info(f"Полученные данные: {data}")
+
     update = Update.de_json(data, application.bot)
     
+    if not application.running:
+        logger.error("Ошибка: Telegram Application не запущено перед Webhook.")
+        return {"error": "Application не запущено"}, 500
+
     try:
         await application.process_update(update)
+        logger.info("Webhook успешно обработан.")
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"Ошибка обработки Webhook: {e}")
         return {"error": "Ошибка сервера"}, 500
-
-@app.post("/postback")
-async def postback(request: Request):
-    data = await request.json()
-    logger.info("Полученные данные в /postback: %s", data)
-    
-    if not data or data.get("api_key") != API_KEY:
-        return {"error": "Неверный API-ключ"}
-
-    message_text = (
-        "Новая конверсия!\n"
-        f"📌 Оффер: {data.get('offer_id', 'N/A')}\n"
-        f"🛠 Подход: {data.get('sub_id_2', 'N/A')}\n"
-        f"📊 Тип конверсии: {data.get('goal', 'N/A')}\n"
-        f"⚙️ Статус конверсии: {data.get('status', 'N/A')}\n"
-        f"🎯 Кампания: {data.get('sub_id_4', 'N/A')}\n"
-        f"🎯 Адсет: {data.get('sub_id_5', 'N/A')}\n"
-        f"⏰ Время конверсии: {data.get('conversion_date', 'N/A')}\n"
-    )
-    await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message_text)
-    return {"status": "success"}
 
 # ------------------------------
 # Telegram Bot Handlers
@@ -102,8 +96,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Установка Webhook
 # ------------------------------
 async def main():
+    logger.info("Вызов main()...")
     await init_application()
+    logger.info(f"Установка Webhook: {WEBHOOK_URL}/webhook")
     await application.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+    logger.info("Webhook установлен!")
 
 if __name__ == "__main__":
     import uvicorn
