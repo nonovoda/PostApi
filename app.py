@@ -3,17 +3,17 @@ import logging
 import asyncio
 from datetime import datetime
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ------------------------------
 # Конфигурация
 # ------------------------------
-API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")  # Согласно документации – передаётся в заголовке "API-KEY"
+API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")  # Ключ API Alanbase
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
-BASE_API_URL = "https://api.alanbase.com/v1"  # URL API Alanbase
+BASE_API_URL = "https://api.alanbase.com/v1"  # Базовый URL API Alanbase
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-bot.onrender.com/webhook")
 PORT = int(os.environ.get("PORT", 8000))
 
@@ -47,7 +47,7 @@ async def telegram_webhook(request: Request):
         logger.info(f"Полученные данные: {data}")
     except Exception as e:
         logger.error(f"Ошибка при разборе JSON: {e}")
-        return {"error": "Некорректный JSON"}, 400
+        raise HTTPException(status_code=400, detail="Некорректный JSON")
 
     update = Update.de_json(data, application.bot)
 
@@ -61,7 +61,7 @@ async def telegram_webhook(request: Request):
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"Ошибка обработки обновления: {e}")
-        return {"error": "Ошибка сервера"}, 500
+        raise HTTPException(status_code=500, detail="Ошибка сервера")
 
 # ------------------------------
 # Обработчики команд и сообщений Telegram
@@ -98,10 +98,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Обязательные параметры: group_by, timezone, date_from, date_to, currency_code
         params = {
             "group_by": "day",             # Допустимые значения: day, hour, offer, country, os, device, ...
-            "timezone": "Europe/Moscow",     # Пример: Europe/Moscow
-            "date_from": date_from,          # Формат: YYYY-MM-DD HH:mm
-            "date_to": date_to,              # Формат: YYYY-MM-DD HH:mm
-            "currency_code": "USD"           # Код валюты, в которую будут конвертированы платежи
+            "timezone": "Europe/Moscow",   # Пример: Europe/Moscow
+            "date_from": date_from,        # Формат: YYYY-MM-DD HH:mm
+            "date_to": date_to,            # Формат: YYYY-MM-DD HH:mm
+            "currency_code": "USD"         # Код валюты, в которую будут конвертированы платежи
         }
 
         logger.info(f"Отправка запроса к {BASE_API_URL}/partner/statistic/common с параметрами: {params}")
@@ -117,8 +117,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if response.status_code == 200:
             try:
                 data = response.json()
-                # Можно настроить форматирование ответа по необходимости
-                message = f"📊 Статистика за день:\n{data}"
+                # Форматируем ответ для Telegram
+                message = "📊 Статистика за день:\n"
+                for item in data.get("data", []):
+                    message += f"Дата: {item['group_fields'][0]['label']}\n"
+                    message += f"Клики: {item['click_count']}\n"
+                    message += f"Конверсии: {item['conversions']['total']['count']}\n"
+                    message += f"Выплаты: {item['conversions']['total']['payout']} USD\n\n"
             except Exception as e:
                 logger.error(f"Ошибка обработки JSON: {e}")
                 message = "⚠️ Не удалось обработать ответ API."
@@ -155,4 +160,3 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_application())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-
