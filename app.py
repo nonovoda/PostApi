@@ -13,7 +13,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
-BASE_API_URL = "https://api.alanbase.com/api/v1"
+BASE_API_URL = "https://api.alanbase.com/v1"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://apiposts-production-1dea.up.railway.app/webhook")
 PORT = int(os.environ.get("PORT", 8080))
 
@@ -104,12 +104,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Нажата кнопка: {query.data} пользователем {query.from_user.id}")
     
     if query.data == "stats":
-        date = datetime.now().strftime("%Y-%m-%d 00:00")
+        date = datetime.now().strftime("%Y-%m-%d")
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{BASE_API_URL}/partner/statistic/common", 
                                         headers={"API-KEY": API_KEY},
                                         params={"date_from": date, "date_to": date, "group_by": "day", "timezone": "Europe/Moscow"})
-        await query.edit_message_text(f"📊 Статистика за день: {response.json()}")
+        if response.status_code == 200:
+            await query.edit_message_text(f"📊 Статистика за день: {response.json()}")
+        else:
+            await query.edit_message_text(f"⚠️ Ошибка запроса API: {response.status_code}")
     elif query.data == "test_conversion":
         await query.edit_message_text("🚀 Отправка тестовой конверсии...")
 
