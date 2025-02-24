@@ -83,14 +83,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     if query.data == "stats":
-        date_today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        date_from = datetime.now().strftime("%Y-%m-%d 00:00")
+        date_to = datetime.now().strftime("%Y-%m-%d 23:59")
+
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
-            "date_from": date_today,
-            "date_to": date_today,
-            "currency_code": "USD",
-            "nonce": str(uuid.uuid4())  # Уникальный параметр для предотвращения кэширования
+            "date_from": date_from,
+            "date_to": date_to,
+            "currency_code": "USD"
         }
         logger.info(f"Отправка запроса на статистику: {params}")
 
@@ -103,6 +104,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"📊 Статистика за день: {response.json()}")
         elif response.status_code == 422:
             await query.edit_message_text("⚠️ Ошибка 422: Неправильные параметры запроса.")
+        elif response.status_code == 418:
+            await query.edit_message_text("⚠️ Ошибка 418: API отклонило запрос. Попробуйте позже или измените параметры.")
         else:
             await query.edit_message_text(f"⚠️ Ошибка API {response.status_code}: {response.text}")
 
