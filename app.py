@@ -19,11 +19,11 @@ PORT = int(os.environ.get("PORT", 8000))
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.DEBUG  # Включаем DEBUG для подробного логирования
+    level=logging.DEBUG
 )
 logger = logging.getLogger(__name__)
 
-# Логируем переменные окружения (без вывода полного ключа)
+# Логирование конфигурационных переменных (скрываем часть ключей)
 logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API_KEY != 'ВАШ_API_КЛЮЧ' else API_KEY}, TELEGRAM_TOKEN = {TELEGRAM_TOKEN[:4]+'****' if TELEGRAM_TOKEN != 'ВАШ_ТОКЕН' else TELEGRAM_TOKEN}, TELEGRAM_CHAT_ID = {TELEGRAM_CHAT_ID}")
 
 # ------------------------------
@@ -124,9 +124,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     logger.debug(f"Получено сообщение: {text}")
 
+    # Заголовки для API-запросов (добавлен User-Agent)
     headers = {
         "API-KEY": API_KEY,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "TelegramBot/1.0 (compatible; Alanbase API integration)"
     }
 
     if text == "Получить статистику":
@@ -248,3 +250,4 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_application())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
