@@ -105,16 +105,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if query.data == "stats":
         date = datetime.now().strftime("%Y-%m-%d")
+        url = f"{BASE_API_URL}/partner/statistic/common"
+        params = {
+            "date_from": date,
+            "date_to": date,
+            "group_by": "day",
+            "timezone": "Europe/Moscow"
+        }
+        headers = {
+            "API-KEY": API_KEY,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{BASE_API_URL}/partner/statistic/common", 
-                                        headers={"API-KEY": API_KEY},
-                                        params={"date_from": date, "date_to": date, "group_by": "day", "timezone": "Europe/Moscow"})
+            response = await client.get(url, headers=headers, params=params)
+        
+        logger.info(f"Запрос к API: {response.url} | Статус: {response.status_code}")
+        
         if response.status_code == 200:
             await query.edit_message_text(f"📊 Статистика за день: {response.json()}")
+        elif response.status_code == 418:
+            await query.edit_message_text("⚠️ Ошибка API 418: Возможно, заблокирован API-ключ или запрос некорректен.")
         else:
             await query.edit_message_text(f"⚠️ Ошибка запроса API: {response.status_code}")
-    elif query.data == "test_conversion":
-        await query.edit_message_text("🚀 Отправка тестовой конверсии...")
 
 application.add_handler(CommandHandler("start", send_buttons))
 application.add_handler(CallbackQueryHandler(button_handler))
