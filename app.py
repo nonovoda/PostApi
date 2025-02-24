@@ -1,11 +1,8 @@
 import os
 import logging
-import requests
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from flask import Flask, request, jsonify
-from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from fastapi import FastAPI, Request
+from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # ------------------------------
@@ -18,12 +15,6 @@ BASE_API_URL = "https://api.alanbase.com/api/v1"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://apiposts-production-6a11.up.railway.app")
 PORT = int(os.getenv("PORT", 5000))
 
-API_HEADERS = {
-    "API-KEY": API_KEY,
-    "Content-Type": "application/json",
-    "User-Agent": "AlanbaseTelegramBot/1.0"
-}
-
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -31,29 +22,26 @@ logger = logging.getLogger(__name__)
 # Инициализация Telegram-бота
 # ------------------------------
 application = Application.builder().token(TELEGRAM_TOKEN).build()
-executor = ThreadPoolExecutor(max_workers=5)  # Создаем пул потоков
 
 # ------------------------------
-# Flask API
+# FastAPI сервер
 # ------------------------------
-app = Flask(__name__)
+app = FastAPI()
 
-def process_telegram_update(update):
-    """Обрабатываем обновления в отдельном потоке."""
-    asyncio.run(application.process_update(update))
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    data = await request.json()
+    update = Update.de_json(data, application.bot)
+    await application.process_update(update)
+    return {"status": "ok"}
 
-@app.route("/webhook", methods=["POST"])
-def telegram_webhook():
-    update = Update.de_json(request.get_json(), application.bot)
-    executor.submit(process_telegram_update, update)  # Запускаем обработку в потоке
-    return jsonify({"status": "success"}), 200
-
-@app.route("/postback", methods=["POST"])
-def postback():
-    data = request.get_json()
+@app.post("/postback")
+async def postback(request: Request):
+    data = await request.json()
     logger.info("Полученные данные в /postback: %s", data)
+    
     if not data or data.get("api_key") != API_KEY:
-        return jsonify({"error": "Неверный API-ключ"}), 403
+        return {"error": "Неверный API-ключ"}
 
     message_text = (
         "Новая конверсия!\n"
@@ -65,22 +53,20 @@ def postback():
         f"🎯 Адсет: {data.get('sub_id_5', 'N/A')}\n"
         f"⏰ Время конверсии: {data.get('conversion_date', 'N/A')}\n"
     )
-    telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message_text}
-    requests.post(telegram_url, json=payload)
-    return jsonify({"status": "success"}), 200
+    await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message_text)
+    return {"status": "success"}
 
 # ------------------------------
 # Telegram Bot Handlers
 # ------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("Статистика", callback_data='stats')],
-        [InlineKeyboardButton("Конверсии", callback_data='conversions')],
-        [InlineKeyboardButton("Офферы", callback_data='offers')],
-        [InlineKeyboardButton("Тест", callback_data='test')]
+        [{"text": "Статистика", "callback_data": "stats"}],
+        [{"text": "Конверсии", "callback_data": "conversions"}],
+        [{"text": "Офферы", "callback_data": "offers"}],
+        [{"text": "Тест", "callback_data": "test"}],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = {"inline_keyboard": keyboard}
     await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -89,13 +75,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     command = query.data
     text = ""
 
-    if command == 'stats':
+    if command == "stats":
         text = "Запрос статистики отправлен."
-    elif command == 'conversions':
-        text = await get_conversions()
-    elif command == 'offers':
-        text = await get_offers()
-    elif command == 'test':
+    elif command == "conversions":
+        text = "Запрос конверсий отправлен."
+    elif command == "offers":
+        text = "Запрос офферов отправлен."
+    elif command == "test":
         text = "Тестовое сообщение отправлено."
     else:
         text = "Неизвестная команда."
@@ -111,7 +97,10 @@ async def set_webhook():
     logger.info(f"Webhook установлен: {webhook_url}")
 
 if __name__ == "__main__":
+    import uvicorn
     import asyncio
+
     loop = asyncio.get_event_loop()
     loop.run_until_complete(set_webhook())
-    app.run(host="0.0.0.0", port=PORT)
+
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
