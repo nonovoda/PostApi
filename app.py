@@ -110,19 +110,25 @@ async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await query.answer()  # Подтверждаем нажатие кнопки
+    
     if query.data == "stats":
-        await query.edit_message_text("📊 Запрос статистики за 1, 7 и 30 дней...")
+        response = "📊 Запрос статистики за 1, 7 и 30 дней..."
     elif query.data == "offers":
-        await query.edit_message_text("📋 Запрос списка офферов...")
+        response = "📋 Запрос списка офферов..."
     elif query.data == "conversions":
-        await query.edit_message_text("🔄 Запрос списка конверсий...")
+        response = "🔄 Запрос списка конверсий..."
     elif query.data == "test_conversion":
-        await query.edit_message_text("🚀 Отправка тестовой конверсии...")
+        response = "🚀 Отправка тестовой конверсии..."
     elif query.data == "balance":
-        await query.edit_message_text("💰 Запрос баланса аккаунта...")
+        response = "💰 Запрос баланса аккаунта..."
     elif query.data == "top_offers":
-        await query.edit_message_text("📈 Запрос топовых офферов...")
+        response = "📈 Запрос топовых офферов..."
+    else:
+        response = "⚠️ Неизвестная команда!"
+
+    # Гарантируем, что бот отправляет ответ
+    await query.edit_message_text(text=response)
 
 application.add_handler(CommandHandler("start", send_buttons))
 application.add_handler(CallbackQueryHandler(button_handler))
