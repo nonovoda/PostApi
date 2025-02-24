@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 @app.route("/webhook", methods=["POST"])
-async def telegram_webhook():
+def telegram_webhook():
     update = Update.de_json(request.get_json(), application.bot)
-    await application.process_update(update)
-    return "OK", 200
+    application.create_task(application.process_update(update))
+    return jsonify({"status": "success"}), 200
 
 @app.route("/postback", methods=["POST"])
 def postback():
