@@ -73,24 +73,23 @@ async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
 
+import httpx
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
+    query = update.message.text
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    # Настройки прокси
+    # Прокси-сервер
     proxy_url = "http://vuexeu:Zd8moe@217.29.62.231:12953"
-    proxies = {
-        "http://": proxy_url,
-        "https://": proxy_url
-    }
+    
+    # Создаём прокси-транспорт
+    transport = httpx.AsyncHTTPTransport(proxy=proxy_url)
 
-    if query.data == "stats":
+    if query == "📊 Статистика за день":
         date_from = datetime.now().strftime("%Y-%m-%d 00:00")
         date_to = datetime.now().strftime("%Y-%m-%d 23:59")
 
@@ -103,19 +102,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         logger.info(f"Отправка запроса на статистику через прокси: {params}")
 
-        async with httpx.AsyncClient(proxies=proxies) as client:
+        async with httpx.AsyncClient(transport=transport) as client:
             response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
 
         logger.info(f"Ответ API: {response.status_code} - {response.text}")
 
         if response.status_code == 200:
-            await query.edit_message_text(f"📊 Статистика за день: {response.json()}")
+            await update.message.reply_text(f"📊 Статистика за день: {response.json()}")
         elif response.status_code == 422:
-            await query.edit_message_text("⚠️ Ошибка 422: Неправильные параметры запроса.")
+            await update.message.reply_text("⚠️ Ошибка 422: Неправильные параметры запроса.")
         elif response.status_code == 418:
-            await query.edit_message_text("⚠️ Ошибка 418: API отклонило запрос. Пробуем через прокси.")
+            await update.message.reply_text("⚠️ Ошибка 418: API отклонило запрос. Пробуем через прокси.")
         else:
-            await query.edit_message_text(f"⚠️ Ошибка API {response.status_code}: {response.text}")
+            await update.message.reply_text(f"⚠️ Ошибка API {response.status_code}: {response.text}")
 
     elif query.data == "test_conversion":
         await query.edit_message_text("🚀 Отправка тестовой конверсии...")
