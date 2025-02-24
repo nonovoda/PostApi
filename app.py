@@ -1,7 +1,7 @@
 import os
 import logging
 import asyncio
-import requests
+import httpx
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -28,11 +28,8 @@ application = Application.builder().token(TELEGRAM_TOKEN).build()
 async def init_application():
     logger.info("Запуск инициализации Telegram бота...")
     await application.initialize()
-    logger.info("Бот инициализирован!")
-
     await application.start()
     logger.info("Бот запущен!")
-
     logger.info("Инициализация Telegram бота завершена.")
 
 # ------------------------------
@@ -99,15 +96,19 @@ async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🚀 Тестовая конверсия", callback_data='test_conversion')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
+    logger.info("Кнопки отправлены пользователю.")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    logger.info(f"Нажата кнопка: {query.data} пользователем {query.from_user.id}")
+    
     if query.data == "stats":
         date = datetime.now().strftime("%Y-%m-%d 00:00")
-        response = requests.get(f"{BASE_API_URL}/partner/statistic/common", 
-                                headers={"API-KEY": API_KEY},
-                                params={"date_from": date, "date_to": date, "group_by": "day", "timezone": "Europe/Moscow"})
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{BASE_API_URL}/partner/statistic/common", 
+                                        headers={"API-KEY": API_KEY},
+                                        params={"date_from": date, "date_to": date, "group_by": "day", "timezone": "Europe/Moscow"})
         await query.edit_message_text(f"📊 Статистика за день: {response.json()}")
     elif query.data == "test_conversion":
         await query.edit_message_text("🚀 Отправка тестовой конверсии...")
