@@ -13,7 +13,7 @@ API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
 BASE_API_URL = "https://api.alanbase.com/api/v1"
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://example.com")  # Укажи свой URL для webhook
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://apiposts-production-6a11.up.railway.app")
 PORT = int(os.getenv("PORT", 5000))
 
 API_HEADERS = {
@@ -24,6 +24,11 @@ API_HEADERS = {
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ------------------------------
+# Инициализация Telegram-бота
+# ------------------------------
+application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 # ------------------------------
 # Flask API
@@ -58,55 +63,39 @@ def postback():
     requests.post(telegram_url, json=payload)
     return jsonify({"status": "success"}), 200
 
-async def get_conversions():
-    params = {
-        "timezone": "Europe/Moscow",
-        "date_from": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
-        "date_to": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "statuses": [0, 1, 2, 4],
-        "per_page": 1000
-    }
-    url = f"{BASE_API_URL}/partner/statistic/conversions"
-    response = requests.get(url, headers=API_HEADERS, params=params)
-    if response.status_code == 200:
-        data = response.json()
-        return f"🔄 *Конверсии:* {data.get('meta', {}).get('total_count', 'N/A')}"
-    return "Ошибка получения данных."
+# ------------------------------
+# Telegram Bot Handlers
+# ------------------------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("Статистика", callback_data='stats')],
+        [InlineKeyboardButton("Конверсии", callback_data='conversions')],
+        [InlineKeyboardButton("Офферы", callback_data='offers')],
+        [InlineKeyboardButton("Тест", callback_data='test')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
 
-async def get_offers():
-    params = {
-        "is_avaliable": 1,
-        "per_page": 100
-    }
-    url = f"{BASE_API_URL}/partner/offers"
-    response = requests.get(url, headers=API_HEADERS, params=params)
-    if response.status_code == 200:
-        data = response.json()
-        return f"📋 *Офферы:* {data.get('meta', {}).get('total_count', 'N/A')}"
-    return "Ошибка API."
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    command = query.data
+    text = ""
+    if command == 'stats':
+        text = "Запрос статистики отправлен."
+    elif command == 'conversions':
+        text = await get_conversions()
+    elif command == 'offers':
+        text = await get_offers()
+    elif command == 'test':
+        text = "Тестовое сообщение отправлено."
+    else:
+        text = "Неизвестная команда."
+    await query.edit_message_text(text=text)
 
-async def get_common_stats():
-    params = {
-        "group_by": "day",
-        "timezone": "Europe/Moscow",
-        "date_from": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d 00:00"),
-        "date_to": datetime.now().strftime("%Y-%m-%d %H:%M")
-    }
-    url = f"{BASE_API_URL}/partner/statistic/common"
-    response = requests.get(url, headers=API_HEADERS, params=params)
-    if response.status_code == 200:
-        data = response.json()
-        return f"📊 Статистика за неделю:\n{data}"
-    return "Ошибка получения статистики."
-
-async def get_conversion_details(conversion_id):
-    url = f"{BASE_API_URL}/partner/statistic/conversions/{conversion_id}"
-    response = requests.get(url, headers=API_HEADERS)
-    if response.status_code == 200:
-        data = response.json()
-        return f"📊 Детали конверсии {conversion_id}:\n{data}"
-    return "Ошибка получения данных о конверсии."
-
+# ------------------------------
+# Установка Webhook
+# ------------------------------
 async def set_webhook():
     webhook_url = f"{WEBHOOK_URL}/webhook"
     await application.bot.set_webhook(webhook_url)
