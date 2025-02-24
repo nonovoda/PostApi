@@ -10,47 +10,39 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # ------------------------------
 # Конфигурация
 # ------------------------------
-API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")  # Согласно документации – передаётся в заголовке "API-KEY"
+API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
-BASE_API_URL = "https://api.alanbase.com/v1"  # URL API Alanbase
+BASE_API_URL = "https://api.alanbase.com/v1"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-bot.onrender.com/webhook")
 PORT = int(os.environ.get("PORT", 8000))
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    level=logging.DEBUG  # Включаем DEBUG для подробного логирования
 )
 logger = logging.getLogger(__name__)
+
+# Логируем переменные окружения (без вывода полного ключа)
+logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API_KEY != 'ВАШ_API_КЛЮЧ' else API_KEY}, TELEGRAM_TOKEN = {TELEGRAM_TOKEN[:4]+'****' if TELEGRAM_TOKEN != 'ВАШ_ТОКЕН' else TELEGRAM_TOKEN}, TELEGRAM_CHAT_ID = {TELEGRAM_CHAT_ID}")
 
 # ------------------------------
 # Функция форматирования статистики
 # ------------------------------
 def format_statistics(response_json, period_label: str) -> str:
-    """
-    Форматирует ответ API статистики в красивое текстовое сообщение.
-    
-    :param response_json: Словарь с ответом API
-    :param period_label: Метка выбранного периода (например, "За час", "За день", "За прошлую неделю")
-    :return: Форматированное текстовое сообщение
-    """
     data = response_json.get("data", [])
     meta = response_json.get("meta", {})
     
     if not data:
         return "⚠️ Статистика не найдена."
     
-    # Для простоты форматируем первую запись статистики (если их несколько, можно расширить логику)
     stat = data[0]
-    # Извлекаем информацию из group_fields (если она есть)
     group_fields = stat.get("group_fields", [])
     date_info = group_fields[0].get("label") if group_fields else "Не указано"
     
-    # Извлекаем показатели кликов
     clicks = stat.get("click_count", "N/A")
     unique_clicks = stat.get("click_unique_count", "N/A")
     
-    # Извлекаем данные по конверсиям
     conversions = stat.get("conversions", {})
     confirmed = conversions.get("confirmed", {})
     pending = conversions.get("pending", {})
@@ -79,10 +71,10 @@ def format_statistics(response_json, period_label: str) -> str:
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 async def init_application():
-    logger.info("Инициализация и запуск Telegram-бота...")
+    logger.debug("Инициализация и запуск Telegram-бота...")
     await application.initialize()
     await application.start()
-    logger.info("Бот успешно запущен!")
+    logger.debug("Бот успешно запущен!")
 
 # ------------------------------
 # FastAPI сервер для обработки вебхуков
@@ -91,17 +83,16 @@ app = FastAPI()
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
-    logger.info("Получен запрос на /webhook")
+    logger.debug("Получен запрос на /webhook")
     try:
         data = await request.json()
-        logger.info(f"Полученные данные: {data}")
+        logger.debug(f"Полученные данные: {data}")
     except Exception as e:
         logger.error(f"Ошибка при разборе JSON: {e}")
         return {"error": "Некорректный JSON"}, 400
 
     update = Update.de_json(data, application.bot)
 
-    # Если приложение не запущено – инициализируем его
     if not application.running:
         logger.warning("Telegram Application не запущено, выполняется инициализация...")
         await init_application()
@@ -123,6 +114,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ["🔄 Обновить данные", "Получить статистику"]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    logger.debug("Отправка основного меню")
     await update.message.reply_text("Привет! Выберите команду:", reply_markup=reply_markup)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -130,41 +122,38 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = update.message.text
+    logger.debug(f"Получено сообщение: {text}")
 
-    # Заголовки для API-запросов
     headers = {
         "API-KEY": API_KEY,
         "Content-Type": "application/json"
     }
 
     if text == "Получить статистику":
-        # Отправляем клавиатуру с вариантами периодов, включая прошлую неделю
         period_keyboard = [["За час", "За день"], ["За прошлую неделю"], ["Назад"]]
         reply_markup = ReplyKeyboardMarkup(period_keyboard, resize_keyboard=True, one_time_keyboard=True)
+        logger.debug("Отправка клавиатуры для выбора периода статистики")
         await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup)
 
     elif text in ["За час", "За день", "За прошлую неделю"]:
         now = datetime.now()
         period_label = text
         if text == "За час":
-            # Статистика за последний час (группировка по часу)
             date_from = (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M")
             date_to = now.strftime("%Y-%m-%d %H:%M")
             group_by = "hour"
         elif text == "За день":
-            # Статистика за день (группировка по дню, если API требует одинаковых дат)
             selected_date = now.strftime("%Y-%m-%d 00:00")
             date_from = selected_date
             date_to = selected_date
             group_by = "day"
         elif text == "За прошлую неделю":
-            # Вычисляем прошлую неделю: с понедельника по воскресенье предыдущей недели
             weekday = now.weekday()
             last_monday = now - timedelta(days=weekday + 7)
             date_from = last_monday.replace(hour=0, minute=0).strftime("%Y-%m-%d %H:%M")
             last_sunday = last_monday + timedelta(days=6)
             date_to = last_sunday.replace(hour=23, minute=59).strftime("%Y-%m-%d %H:%M")
-            group_by = "hour"  # Для диапазона в несколько дней лучше группировать по часу
+            group_by = "hour"
 
         params = {
             "group_by": group_by,
@@ -173,11 +162,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "date_to": date_to,
             "currency_code": "USD"
         }
-        logger.info(f"Отправка запроса к {BASE_API_URL}/partner/statistic/common с параметрами: {params}")
+        logger.debug(f"Формирование запроса к {BASE_API_URL}/partner/statistic/common с параметрами: {params} и заголовками: {headers}")
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
-            logger.info(f"Ответ API: {response.status_code} - {response.text}")
+            logger.debug(f"Получен ответ API: {response.status_code} - {response.text}")
         except httpx.RequestError as exc:
             logger.error(f"Ошибка запроса к API: {exc}")
             await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
@@ -205,11 +194,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "date_to": selected_date,
             "currency_code": "USD"
         }
-        logger.info(f"Отправка запроса к {BASE_API_URL}/partner/statistic/common с параметрами: {params}")
+        logger.debug(f"Формирование запроса для 'Статистика за день' с параметрами: {params}")
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
-            logger.info(f"Ответ API: {response.status_code} - {response.text}")
+            logger.debug(f"Получен ответ API: {response.status_code} - {response.text}")
         except httpx.RequestError as exc:
             logger.error(f"Ошибка запроса к API: {exc}")
             await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
@@ -236,13 +225,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "🔄 Обновить данные":
         await update.message.reply_text("🔄 Данные обновлены!")
     elif text == "Назад":
-        # Возврат к основному меню
         main_keyboard = [
             ["📊 Статистика за день", "🚀 Тестовая конверсия"],
             ["🔍 Детальная статистика", "📈 Топ офферы"],
             ["🔄 Обновить данные", "Получить статистику"]
         ]
         reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
+        logger.debug("Возврат в главное меню")
         await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup)
     else:
         await update.message.reply_text("Неизвестная команда. Попробуйте снова.")
@@ -256,8 +245,6 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_h
 # ------------------------------
 if __name__ == "__main__":
     import uvicorn
-
-    # Запуск Telegram-бота и FastAPI-сервера в одном процессе
     loop = asyncio.get_event_loop()
     loop.create_task(init_application())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
