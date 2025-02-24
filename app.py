@@ -43,9 +43,13 @@ app = FastAPI()
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     logger.info("Запрос получен в /webhook!")
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.error(f"Ошибка парсинга JSON: {e}")
+        return {"error": "Некорректный JSON"}, 400
+    
     logger.info(f"Полученные данные: {data}")
-
     update = Update.de_json(data, application.bot)
     
     if not application.running:
@@ -87,7 +91,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "date_to": date_today,
             "currency_code": "USD"
         }
+        logger.info(f"Отправка запроса на статистику: {params}")
         response = requests.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
+        logger.info(f"Ответ API: {response.status_code} - {response.text}")
+        
         if response.status_code == 200:
             await query.edit_message_text(f"📊 Статистика за день: {response.json()}")
         else:
