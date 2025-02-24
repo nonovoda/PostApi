@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 # ------------------------------
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+async def init_application():
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+
 # ------------------------------
 # FastAPI сервер
 # ------------------------------
@@ -91,16 +96,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ------------------------------
 # Установка Webhook
 # ------------------------------
-async def set_webhook():
-    webhook_url = f"{WEBHOOK_URL}/webhook"
-    await application.bot.set_webhook(webhook_url)
-    logger.info(f"Webhook установлен: {webhook_url}")
+async def main():
+    await init_application()
+    await application.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
 
 if __name__ == "__main__":
     import uvicorn
-    import asyncio
 
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(set_webhook())
-
+    loop.run_until_complete(main())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
