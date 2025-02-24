@@ -12,7 +12,7 @@ API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
 BASE_API_URL = "https://api.alanbase.com/api/v1"
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://apiposts-production-6a11.up.railway.app")
+WEBHOOK_URL = "https://apiposts-production-1dea.up.railway.app/webhook"
 PORT = int(os.getenv("PORT", 5000))
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
