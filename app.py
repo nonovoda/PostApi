@@ -4,7 +4,7 @@ import asyncio
 import requests
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # ------------------------------
@@ -92,18 +92,33 @@ async def postback(request: Request):
     return {"status": "success"}
 
 # ------------------------------
-# Установка Webhook
+# Telegram Bot Handlers & Buttons
 # ------------------------------
-async def main():
-    logger.info("Вызов main()...")
-    await init_application()
-    logger.info(f"Установка Webhook: {WEBHOOK_URL}/webhook")
-    await application.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-    logger.info("Webhook установлен!")
+async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("📊 Статистика", callback_data='stats')],
+                [InlineKeyboardButton("📋 Офферы", callback_data='offers')],
+                [InlineKeyboardButton("🔄 Конверсии", callback_data='conversions')],
+                [InlineKeyboardButton("🚀 Тест", callback_data='test_conversion')],
+                [InlineKeyboardButton("💰 Баланс", callback_data='balance')],
+                [InlineKeyboardButton("📈 Топ офферы", callback_data='top_offers')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
 
-if __name__ == "__main__":
-    import uvicorn
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "stats":
+        await query.edit_message_text("📊 Запрос статистики за 1, 7 и 30 дней...")
+    elif query.data == "offers":
+        await query.edit_message_text("📋 Запрос списка офферов...")
+    elif query.data == "conversions":
+        await query.edit_message_text("🔄 Запрос списка конверсий...")
+    elif query.data == "test_conversion":
+        await query.edit_message_text("🚀 Отправка тестовой конверсии...")
+    elif query.data == "balance":
+        await query.edit_message_text("💰 Запрос баланса аккаунта...")
+    elif query.data == "top_offers":
+        await query.edit_message_text("📈 Запрос топовых офферов...")
 
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+application.add_handler(CommandHandler("start", send_buttons))
+application.add_handler(CallbackQueryHandler(button_handler))
