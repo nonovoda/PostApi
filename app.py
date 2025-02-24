@@ -23,11 +23,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Логирование конфигурационных переменных (скрывая часть ключей)
 logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API_KEY != 'ВАШ_API_КЛЮЧ' else API_KEY}, TELEGRAM_TOKEN = {TELEGRAM_TOKEN[:4]+'****' if TELEGRAM_TOKEN != 'ВАШ_ТОКЕН' else TELEGRAM_TOKEN}, TELEGRAM_CHAT_ID = {TELEGRAM_CHAT_ID}")
 
 # ------------------------------
-# Функция форматирования статистики
+# Функция форматирования статистики (общей)
 # ------------------------------
 def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
@@ -62,6 +61,40 @@ def format_statistics(response_json, period_label: str) -> str:
         f"❌ Отклоненные: *{rejected.get('count', 'N/A')}* (💰 {rejected.get('payout', 'N/A')} USD)\n"
         f"💰 Всего: *{total.get('count', 'N/A')}* (Сумма: {total.get('payout', 'N/A')} USD)\n\n"
         f"ℹ️ Страница: *{meta.get('page', 'N/A')}* / Последняя: *{meta.get('last_page', 'N/A')}* | Всего записей: *{meta.get('total_count', 'N/A')}*"
+    )
+    return message
+
+# ------------------------------
+# Функция форматирования офферов (топ офферы)
+# ------------------------------
+def format_offers(response_json) -> str:
+    offers = response_json.get("data", [])
+    meta = response_json.get("meta", {})
+    if not offers:
+        return "⚠️ Офферы не найдены."
+    message = "📈 *Топ офферы:*\n\n"
+    for offer in offers:
+        message += f"• *ID:* {offer.get('id')} | *Название:* {offer.get('name')}\n"
+    message += f"\nℹ️ Страница: {meta.get('page', 'N/A')} / Всего: {meta.get('total_count', 'N/A')}"
+    return message
+
+# ------------------------------
+# Функция форматирования конверсии (тестовая конверсия)
+# ------------------------------
+def format_conversion(response_json) -> str:
+    data = response_json.get("data", [])
+    if not data:
+        return "⚠️ Конверсии не найдены."
+    # Для примера отформатируем первую конверсию
+    conv = data[0]
+    message = (
+        f"🚀 *Тестовая конверсия:*\n\n"
+        f"ID: {conv.get('conversion_id', 'N/A')}\n"
+        f"Статус: {conv.get('status', 'N/A')}\n"
+        f"Причина отклонения: {conv.get('decline_reason', 'N/A')}\n"
+        f"Дата конверсии: {conv.get('conversion_datetime', 'N/A')}\n"
+        f"Модель оплаты: {conv.get('payment_model', 'N/A')}\n"
+        f"Платёж: {conv.get('payout', 'N/A')} {conv.get('payout_currency', 'USD')}\n"
     )
     return message
 
@@ -124,41 +157,40 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     logger.debug(f"Получено сообщение: {text}")
 
-    # Заголовки для API-запросов (с добавленным User-Agent)
+    # Заголовки для всех запросов
     headers = {
         "API-KEY": API_KEY,
         "Content-Type": "application/json",
         "User-Agent": "TelegramBot/1.0 (compatible; Alanbase API integration)"
     }
 
+    now = datetime.now()
+    
     if text == "Получить статистику":
         period_keyboard = [["За час", "За день"], ["За прошлую неделю"], ["Назад"]]
         reply_markup = ReplyKeyboardMarkup(period_keyboard, resize_keyboard=True, one_time_keyboard=True)
         logger.debug("Отправка клавиатуры для выбора периода статистики")
         await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup)
-
+    
     elif text in ["За час", "За день", "За прошлую неделю"]:
-        now = datetime.now()
         period_label = text
         if text == "За час":
-            date_from = (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M")
-            date_to = now.strftime("%Y-%m-%d %H:%M")
+            date_from = (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+            date_to = now.strftime("%Y-%m-%d %H:%M:%S")
             group_by = "hour"
         elif text == "За день":
-            # Если группировка по дню, параметры должны быть одинаковыми
-            selected_date = now.strftime("%Y-%m-%d 00:00")
+            selected_date = now.strftime("%Y-%m-%d 00:00:00")
             date_from = selected_date
             date_to = selected_date
             group_by = "day"
         elif text == "За прошлую неделю":
-            # Вычисляем прошлую неделю: с понедельника по воскресенье предыдущей недели
             weekday = now.weekday()
             last_monday = now - timedelta(days=weekday + 7)
-            date_from = last_monday.replace(hour=0, minute=0).strftime("%Y-%m-%d %H:%M")
+            date_from = last_monday.replace(hour=0, minute=0, second=0).strftime("%Y-%m-%d %H:%M:%S")
             last_sunday = last_monday + timedelta(days=6)
-            date_to = last_sunday.replace(hour=23, minute=59).strftime("%Y-%m-%d %H:%M")
-            group_by = "hour"  # Для диапазона в несколько дней используем группировку по часу
-
+            date_to = last_sunday.replace(hour=23, minute=59, second=59).strftime("%Y-%m-%d %H:%M:%S")
+            group_by = "hour"
+        
         params = {
             "group_by": group_by,
             "timezone": "Europe/Moscow",
@@ -189,8 +221,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message, parse_mode="Markdown")
     
     elif text == "📊 Статистика за день":
-        now = datetime.now()
-        selected_date = now.strftime("%Y-%m-%d 00:00")
+        selected_date = now.strftime("%Y-%m-%d 00:00:00")
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
@@ -207,7 +238,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Ошибка запроса к API: {exc}")
             await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
             return
-
+        
         if response.status_code == 200:
             try:
                 data = response.json()
@@ -217,17 +248,103 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = "⚠️ Не удалось обработать ответ API."
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-        
         await update.message.reply_text(message, parse_mode="Markdown")
     
     elif text == "🚀 Тестовая конверсия":
-        await update.message.reply_text("🚀 Тестовая конверсия отправлена.")
+        # Для тестовой конверсии используем endpoint /partner/statistic/conversions
+        date_from = (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+        date_to = now.strftime("%Y-%m-%d %H:%M:%S")
+        params = {
+            "timezone": "Europe/Moscow",
+            "date_from": date_from,
+            "date_to": date_to,
+            "currency_code": "USD"
+            # Можно добавить дополнительные параметры, если необходимо
+        }
+        logger.debug(f"Формирование запроса к {BASE_API_URL}/partner/statistic/conversions с параметрами: {params} и заголовками: {headers}")
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(f"{BASE_API_URL}/partner/statistic/conversions", headers=headers, params=params)
+            logger.debug(f"Получен ответ API: {response.status_code} - {response.text}")
+        except httpx.RequestError as exc:
+            logger.error(f"Ошибка запроса к API: {exc}")
+            await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
+            return
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                message = format_conversion(data)
+            except Exception as e:
+                logger.error(f"Ошибка обработки JSON: {e}")
+                message = "⚠️ Не удалось обработать ответ API."
+        else:
+            message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
+    
     elif text == "🔍 Детальная статистика":
-        await update.message.reply_text("🔍 Запрос детальной статистики отправлен.")
+        # Для детальной статистики используем группировку по офферам за сегодняшний день
+        selected_date = now.strftime("%Y-%m-%d 00:00:00")
+        params = {
+            "group_by": "offer",
+            "timezone": "Europe/Moscow",
+            "date_from": selected_date,
+            "date_to": selected_date,
+            "currency_code": "USD"
+        }
+        logger.debug(f"Формирование запроса к {BASE_API_URL}/partner/statistic/common для детальной статистики с параметрами: {params}")
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
+            logger.debug(f"Получен ответ API: {response.status_code} - {response.text}")
+        except httpx.RequestError as exc:
+            logger.error(f"Ошибка запроса к API: {exc}")
+            await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
+            return
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                message = format_statistics(data, "Детальная статистика")
+            except Exception as e:
+                logger.error(f"Ошибка обработки JSON: {e}")
+                message = "⚠️ Не удалось обработать ответ API."
+        else:
+            message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+        await update.message.reply_text(message, parse_mode="Markdown")
+    
     elif text == "📈 Топ офферы":
-        await update.message.reply_text("📈 Запрос списка топ офферов отправлен.")
+        # Запрос списка офферов, например, только доступных, первые 10
+        params = {
+            "is_avaliable": 1,
+            "page": 1,
+            "per_page": 10
+        }
+        logger.debug(f"Формирование запроса к {BASE_API_URL}/partner/offers с параметрами: {params}")
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(f"{BASE_API_URL}/partner/offers", headers=headers, params=params)
+            logger.debug(f"Получен ответ API: {response.status_code} - {response.text}")
+        except httpx.RequestError as exc:
+            logger.error(f"Ошибка запроса к API: {exc}")
+            await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
+            return
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                message = format_offers(data)
+            except Exception as e:
+                logger.error(f"Ошибка обработки JSON: {e}")
+                message = "⚠️ Не удалось обработать ответ API."
+        else:
+            message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+        await update.message.reply_text(message, parse_mode="Markdown")
+    
     elif text == "🔄 Обновить данные":
         await update.message.reply_text("🔄 Данные обновлены!")
+    
     elif text == "Назад":
         main_keyboard = [
             ["📊 Статистика за день", "🚀 Тестовая конверсия"],
@@ -237,6 +354,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
         logger.debug("Возврат в главное меню")
         await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup)
+    
     else:
         await update.message.reply_text("Неизвестная команда. Попробуйте снова.")
 
