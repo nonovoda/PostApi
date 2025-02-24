@@ -35,11 +35,14 @@ application = Application.builder().token(TELEGRAM_TOKEN).build()
 # ------------------------------
 app = Flask(__name__)
 
+import asyncio
+
 @app.route("/webhook", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(), application.bot)
-    application.create_task(application.process_update(update))
+    asyncio.run(application.process_update(update))  # Запуск через asyncio.run()
     return jsonify({"status": "success"}), 200
+
 
 @app.route("/postback", methods=["POST"])
 def postback():
