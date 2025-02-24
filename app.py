@@ -1,6 +1,8 @@
 import os
 import logging
 import asyncio
+import requests
+from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -13,7 +15,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
 BASE_API_URL = "https://api.alanbase.com/api/v1"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://apiposts-production-1dea.up.railway.app/webhook")
-PORT = int(os.getenv("PORT", 5000))
+PORT = int(os.environ.get("PORT", 8080))
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,6 +32,9 @@ async def init_application():
 
     await application.start()
     logger.info("Бот запущен!")
+
+    logger.info("Инициализация Telegram бота завершена.")
+
 # ------------------------------
 # FastAPI сервер
 # ------------------------------
@@ -38,16 +43,14 @@ app = FastAPI()
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     logger.info("Запрос получен в /webhook!")
-
-    # Гарантируем, что бот запущен перед обработкой Webhook
-    if not application.running:
-        logger.warning("Telegram Application не запущено перед Webhook. Принудительная инициализация...")
-        await init_application()  # Запускаем бота принудительно!
-
     data = await request.json()
     logger.info(f"Полученные данные: {data}")
 
     update = Update.de_json(data, application.bot)
+    
+    if not application.running:
+        logger.warning("Telegram Application не запущено перед Webhook. Принудительная инициализация...")
+        await init_application()
 
     try:
         await application.process_update(update)
@@ -58,36 +61,54 @@ async def telegram_webhook(request: Request):
         return {"error": "Ошибка сервера"}, 500
 
 # ------------------------------
+# API-запросы к ПП
+# ------------------------------
+async def get_common_stats():
+    url = f"{BASE_API_URL}/partner/statistic/common"
+    params = {
+        "group_by": "day",
+        "timezone": "Europe/Moscow",
+        "date_from": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d 00:00"),
+        "date_to": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    response = requests.get(url, headers={"API-KEY": API_KEY}, params=params)
+    return response.json() if response.status_code == 200 else {"error": "Ошибка получения статистики"}
+
+async def get_offers():
+    url = f"{BASE_API_URL}/partner/offers"
+    response = requests.get(url, headers={"API-KEY": API_KEY})
+    return response.json() if response.status_code == 200 else {"error": "Ошибка получения офферов"}
+
+async def get_conversions():
+    url = f"{BASE_API_URL}/partner/statistic/conversions"
+    params = {
+        "timezone": "Europe/Moscow",
+        "date_from": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
+        "date_to": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "statuses": [0, 1, 2, 4],
+        "per_page": 100
+    }
+    response = requests.get(url, headers={"API-KEY": API_KEY}, params=params)
+    return response.json() if response.status_code == 200 else {"error": "Ошибка получения конверсий"}
+
+# ------------------------------
 # Telegram Bot Handlers
 # ------------------------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [{"text": "Статистика", "callback_data": "stats"}],
-        [{"text": "Конверсии", "callback_data": "conversions"}],
-        [{"text": "Офферы", "callback_data": "offers"}],
-        [{"text": "Тест", "callback_data": "test"}],
-    ]
-    reply_markup = {"inline_keyboard": keyboard}
-    await update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    stats = await get_common_stats()
+    await update.message.reply_text(f"📊 Статистика: {stats}")
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    command = query.data
-    text = ""
+async def offers_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    offers = await get_offers()
+    await update.message.reply_text(f"📋 Офферы: {offers}")
 
-    if command == "stats":
-        text = "Запрос статистики отправлен."
-    elif command == "conversions":
-        text = "Запрос конверсий отправлен."
-    elif command == "offers":
-        text = "Запрос офферов отправлен."
-    elif command == "test":
-        text = "Тестовое сообщение отправлено."
-    else:
-        text = "Неизвестная команда."
+async def conversions_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    conversions = await get_conversions()
+    await update.message.reply_text(f"🔄 Конверсии: {conversions}")
 
-    await query.edit_message_text(text=text)
+application.add_handler(CommandHandler("stats", stats_command))
+application.add_handler(CommandHandler("offers", offers_command))
+application.add_handler(CommandHandler("conversions", conversions_command))
 
 # ------------------------------
 # Установка Webhook
@@ -103,5 +124,5 @@ if __name__ == "__main__":
     import uvicorn
 
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())  # Запускаем бота перед сервером FastAPI!
+    loop.run_until_complete(main())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
