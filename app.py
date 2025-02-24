@@ -76,10 +76,18 @@ async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    # Настройки прокси
+    proxy_url = "http://vuexeu:Zd8moe@217.29.62.231:12953"
+    proxies = {
+        "http://": proxy_url,
+        "https://": proxy_url
     }
 
     if query.data == "stats":
@@ -93,9 +101,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "date_to": date_to,
             "currency_code": "USD"
         }
-        logger.info(f"Отправка запроса на статистику: {params}")
+        logger.info(f"Отправка запроса на статистику через прокси: {params}")
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(proxies=proxies) as client:
             response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
 
         logger.info(f"Ответ API: {response.status_code} - {response.text}")
@@ -105,7 +113,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif response.status_code == 422:
             await query.edit_message_text("⚠️ Ошибка 422: Неправильные параметры запроса.")
         elif response.status_code == 418:
-            await query.edit_message_text("⚠️ Ошибка 418: API отклонило запрос. Попробуйте позже или измените параметры.")
+            await query.edit_message_text("⚠️ Ошибка 418: API отклонило запрос. Пробуем через прокси.")
         else:
             await query.edit_message_text(f"⚠️ Ошибка API {response.status_code}: {response.text}")
 
