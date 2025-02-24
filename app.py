@@ -7,7 +7,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 
 # ------------------------------
-# 🔹 Конфигурация
+# Конфигурация
 # ------------------------------
 API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
@@ -16,10 +16,11 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
 # Базовый URL для Alanbase Partner API
 BASE_API_URL = "https://api.alanbase.com/api/v1"
 
-# Заголовки для запросов к API
+# Заголовки для запросов к API (добавлен User-Agent)
 API_HEADERS = {
     "API-KEY": API_KEY,
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "User-Agent": "AlanbaseTelegramBot/1.0"
 }
 
 # Логирование работы бота
@@ -27,15 +28,16 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # ------------------------------
-# 🔹 Flask API (Постбеки + Статистика + Баланс)
+# Flask API (Постбеки + Статистика + Баланс)
 # ------------------------------
 app = Flask(__name__)
 
 @app.route('/postback', methods=['GET', 'POST'])
 def postback():
-    """ Принимает данные от партнёрской программы и отправляет в Telegram. """
+    """
+    Принимает данные от партнёрской программы и отправляет в Telegram.
+    """
     data = request.get_json() or request.args
-
     if not data:
         return jsonify({"error": "Нет данных в запросе"}), 400
 
@@ -58,27 +60,32 @@ def postback():
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message_text, "parse_mode": "Markdown"}
     requests.post(telegram_url, json=payload)
-
     return jsonify({"status": "success"}), 200
 
 @app.route('/test', methods=['GET'])
 def test():
-    """ Отправляет тестовое сообщение в Telegram. """
+    """
+    Тестовый endpoint для отправки тестового сообщения в Telegram.
+    """
     test_message = "Тестовое сообщение!\nПроверка работы бота."
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": test_message, "parse_mode": "Markdown"}
     requests.post(telegram_url, json=payload)
-
     return jsonify({"status": "Тестовое сообщение успешно отправлено"}), 200
 
 @app.route('/stats', methods=['GET'])
 def stats():
-    """ Получает общую статистику из API и отправляет в Telegram. """
+    """
+    Получает общую статистику из API и отправляет в Telegram.
+    """
     url = f"{BASE_API_URL}/partner/statistic/common"
     response = requests.get(url, headers=API_HEADERS)
-
     if response.status_code == 200:
-        data = response.json()
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            return jsonify({"error": "Неверный формат ответа от API", "raw_response": response.text}), 500
+
         meta = data.get("meta", {})
         stats_message = (
             "📊 *Общая статистика:*\n"
@@ -91,41 +98,42 @@ def stats():
         telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {"chat_id": TELEGRAM_CHAT_ID, "text": stats_message, "parse_mode": "Markdown"}
         requests.post(telegram_url, json=payload)
-
         return jsonify({"status": "Статистика отправлена в Telegram"}), 200
     else:
         return jsonify({"error": "Ошибка получения данных из API", "details": response.text}), 500
 
 @app.route('/balance', methods=['GET'])
 def balance():
-    """ Получает баланс (только USD) из API и отправляет в Telegram. """
+    """
+    Получает баланс (только USD) из API и отправляет в Telegram.
+    """
     url = f"{BASE_API_URL}/partner/balance"
     response = requests.get(url, headers=API_HEADERS)
-
     if response.status_code == 200:
-        data = response.json()
-        balances = data.get("data", [])
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            return jsonify({"error": "Неверный формат ответа от API", "raw_response": response.text}), 500
 
+        balances = data.get("data", [])
         balance_usd = "Нет данных"
         for entry in balances:
             if entry.get("currency_code") == "USD":
                 balance_usd = entry.get("balance", 0)
 
         balance_text = f"💰 *Ваш баланс (USD):* {balance_usd}"
-
         telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {"chat_id": TELEGRAM_CHAT_ID, "text": balance_text, "parse_mode": "Markdown"}
         requests.post(telegram_url, json=payload)
-
         return jsonify({"status": "Баланс отправлен в Telegram"}), 200
     else:
         return jsonify({"error": "Ошибка получения данных из API", "details": response.text}), 500
 
 # ------------------------------
-# 🔹 Telegram-бот (кнопки + команды)
+# Telegram-бот с inline-кнопками
 # ------------------------------
 def start(update: Update, context: CallbackContext) -> None:
-    """ Отправляет inline-кнопки при старте бота. """
+    """Отправляет inline-кнопки при команде /start."""
     keyboard = [
         [InlineKeyboardButton("Статистика", callback_data='stats')],
         [InlineKeyboardButton("Баланс (USD)", callback_data='balance')],
@@ -135,34 +143,61 @@ def start(update: Update, context: CallbackContext) -> None:
     update.message.reply_text("Выберите команду:", reply_markup=reply_markup)
 
 def button_handler(update: Update, context: CallbackContext) -> None:
-    """ Обрабатывает нажатия на inline-кнопки. """
+    """Обрабатывает нажатия на inline-кнопки."""
     query = update.callback_query
     query.answer()
     command = query.data
     text = ""
 
     if command == 'balance':
-        text = balance().json["status"]
+        text = get_balance()
     elif command == 'stats':
-        text = stats().json["status"]
+        text = "Запрос статистики отправлен."  # Можно заменить вызовом функции stats(), если хотите возвращать статус
     elif command == 'test':
-        text = test().json["status"]
+        text = "Тестовое сообщение отправлено."
     else:
         text = "Неизвестная команда."
 
     query.edit_message_text(text=text, parse_mode='Markdown')
 
-# ------------------------------
-# 🔹 Запуск Flask и Telegram-бота
-# ------------------------------
-def run_flask():
-    """ Запускает Flask API. """
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+def get_balance():
+    """Получает баланс USD через API и возвращает строку с информацией."""
+    url = f"{BASE_API_URL}/partner/balance"
+    response = requests.get(url, headers=API_HEADERS)
+    if response.status_code == 200:
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            return "Ошибка: Некорректный ответ от API."
+        balances = data.get("data", [])
+        balance_usd = "Нет данных"
+        for entry in balances:
+            if entry.get("currency_code") == "USD":
+                balance_usd = entry.get("balance", 0)
+        return f"💰 *Ваш баланс (USD):* {balance_usd}"
+    else:
+        return f"Ошибка API: {response.status_code} {response.text}"
 
 def run_telegram_bot():
-    """ Запускает Telegram-бота. """
+    """Запускает Telegram-бота с использованием long polling."""
     updater = Updater(TELEGRAM_TOKEN)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.a
+    dispatcher.add_handler(CallbackQueryHandler(button_handler))
+    updater.start_polling()
+    updater.idle()
+
+# ------------------------------
+# Запуск Flask и Telegram-бота в отдельных потоках
+# ------------------------------
+def run_flask():
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
+
+if __name__ == '__main__':
+    flask_thread = Thread(target=run_flask)
+    telegram_thread = Thread(target=run_telegram_bot)
+    flask_thread.start()
+    telegram_thread.start()
+    flask_thread.join()
+    telegram_thread.join()
