@@ -23,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Логирование конфигурационных переменных (скрываем часть ключей)
+# Логирование конфигурационных переменных (скрывая часть ключей)
 logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API_KEY != 'ВАШ_API_КЛЮЧ' else API_KEY}, TELEGRAM_TOKEN = {TELEGRAM_TOKEN[:4]+'****' if TELEGRAM_TOKEN != 'ВАШ_ТОКЕН' else TELEGRAM_TOKEN}, TELEGRAM_CHAT_ID = {TELEGRAM_CHAT_ID}")
 
 # ------------------------------
@@ -124,7 +124,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     logger.debug(f"Получено сообщение: {text}")
 
-    # Заголовки для API-запросов (добавлен User-Agent)
+    # Заголовки для API-запросов (с добавленным User-Agent)
     headers = {
         "API-KEY": API_KEY,
         "Content-Type": "application/json",
@@ -145,17 +145,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             date_to = now.strftime("%Y-%m-%d %H:%M")
             group_by = "hour"
         elif text == "За день":
+            # Если группировка по дню, параметры должны быть одинаковыми
             selected_date = now.strftime("%Y-%m-%d 00:00")
             date_from = selected_date
             date_to = selected_date
             group_by = "day"
         elif text == "За прошлую неделю":
+            # Вычисляем прошлую неделю: с понедельника по воскресенье предыдущей недели
             weekday = now.weekday()
             last_monday = now - timedelta(days=weekday + 7)
             date_from = last_monday.replace(hour=0, minute=0).strftime("%Y-%m-%d %H:%M")
             last_sunday = last_monday + timedelta(days=6)
             date_to = last_sunday.replace(hour=23, minute=59).strftime("%Y-%m-%d %H:%M")
-            group_by = "hour"
+            group_by = "hour"  # Для диапазона в несколько дней используем группировку по часу
 
         params = {
             "group_by": group_by,
@@ -250,4 +252,3 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_application())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-
