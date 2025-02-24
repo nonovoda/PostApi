@@ -14,7 +14,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
 
 # Базовый URL для Alanbase Partner API
-BASE_API_URL = "https://api.alanbase.com/api/v1"
+BASE_API_URL = "https://cabinet.4rabetpartner.com/api/v1"
 
 # Заголовки для запросов к API (с User-Agent)
 API_HEADERS = {
