@@ -169,6 +169,14 @@ async def webhook_handler(request: Request):
 # Обработчики команд Telegram
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Добавляем задержку 1 секунда перед удалением предыдущего сообщения
+    await asyncio.sleep(1)
+    last_msg_id = context.user_data.get("last_bot_message_id")
+    if last_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
+        except Exception as e:
+            logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
     main_keyboard = get_main_menu()
     logger.debug("Отправка главного меню")
     text = "Привет! Выберите команду:"
@@ -179,22 +187,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    # Удаляем входящее сообщение пользователя для чистоты диалога
+    # Добавляем задержку 1 секунда перед удалением входящего сообщения
+    await asyncio.sleep(1)
     try:
         await update.message.delete()
     except Exception as e:
         logger.debug(f"Не удалось удалить сообщение пользователя: {e}")
 
-    # Удаляем предыдущее сообщение бота, если оно существует
+    # Добавляем задержку 1 секунда перед удалением предыдущего сообщения бота
+    await asyncio.sleep(1)
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
-            await update.message.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
         except Exception as e:
             logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
 
     text = update.message.text.strip()
     logger.debug(f"Получено сообщение: {text}")
+
+    # Далее идут проверки текста кнопок и обработка команды...
+
 
     if text == "📊 Получить статистику":
         reply_markup = get_statistics_menu()
