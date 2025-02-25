@@ -6,6 +6,7 @@ import httpx
 from fastapi import FastAPI, Request
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.helpers import escape_markdown
 
 # ------------------------------
 # Конфигурация
@@ -45,24 +46,39 @@ async def format_statistics(response_json, period_label: str) -> str:
     confirmed = stat.get("conversions", {}).get("confirmed", {})
     confirmed_count = confirmed.get("count", "N/A")
     income = confirmed.get("income", "N/A")
+    
+    # Экранирование динамических данных
+    period_label_esc = escape_markdown(period_label, version=2)
+    date_info_esc = escape_markdown(date_info, version=2)
+    clicks_esc = escape_markdown(str(clicks), version=2)
+    unique_clicks_esc = escape_markdown(str(unique_clicks), version=2)
+    confirmed_count_esc = escape_markdown(str(confirmed_count), version=2)
+    income_esc = escape_markdown(str(income), version=2)
+    
     message = (
-        f"**📊 Статистика ({period_label})**\n\n"
-        f"**📅 Дата:** _{date_info}_\n\n"
+        f"**📊 Статистика ({period_label_esc})**\n\n"
+        f"**📅 Дата:** _{date_info_esc}_\n\n"
         f"**🖱 Клики:**\n"
-        f"• **Всего:** _{clicks}_\n"
-        f"• **Уникальные:** _{unique_clicks}_\n\n"
-        f"**✅ Конверсии (подтверждённые):** _{confirmed_count}_\n\n"
-        f"**💵 Доход:** _{income} USD_"
+        f"• **Всего:** _{clicks_esc}_\n"
+        f"• **Уникальные:** _{unique_clicks_esc}_\n\n"
+        f"**✅ Конверсии (подтверждённые):** _{confirmed_count_esc}_\n\n"
+        f"**💵 Доход:** _{income_esc} USD_"
     )
     return message
 
+# ------------------------------
+# Функция форматирования офферов
+# ------------------------------
 async def format_offers(response_json) -> str:
     offers = response_json.get("data", [])
     if not offers:
         return "⚠️ *Офферы не найдены.*"
     message = "**📈 Топ офферы:**\n\n"
     for offer in offers:
-        message += f"• **ID:** {offer.get('id')} | **Название:** {offer.get('name')}\n"
+        offer_id = escape_markdown(str(offer.get('id')), version=2)
+        offer_name = escape_markdown(str(offer.get('name')), version=2)
+        # Символ '|' экранируется вручную
+        message += f"• **ID:** {offer_id} \\| **Название:** {offer_name}\n"
     return message
 
 # ------------------------------
@@ -259,7 +275,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         period_label = f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
         message = (
-            f"**📊 Статистика ({period_label})**\n\n"
+            f"**📊 Статистика ({escape_markdown(period_label, version=2)})**\n\n"
             f"**🖱 Клики:**\n"
             f"• **Всего:** _{total_clicks}_\n"
             f"• **Уникальные:** _{total_unique}_\n\n"
@@ -397,24 +413,5 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [KeyboardButton(text="📈 Топ офферы")],
             [KeyboardButton(text="🔄 Обновить данные")]
         ]
-        reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
-        logger.debug("Возврат в главное меню")
-        await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup)
-    
-    else:
-        await update.message.reply_text("❗ Неизвестная команда. Попробуйте снова.", parse_mode="MarkdownV2")
+        reply_markup = ReplyKeyboardMarkup(main_keyboard
 
-# ------------------------------
-# Регистрация обработчиков Telegram
-# ------------------------------
-telegram_app.add_handler(CommandHandler("start", start_command))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
-
-# ------------------------------
-# Основной запуск
-# ------------------------------
-if __name__ == "__main__":
-    import uvicorn
-    loop = asyncio.get_event_loop()
-    loop.create_task(init_telegram_app())
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
