@@ -33,10 +33,11 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 def get_main_menu():
-    # Главное меню с кнопками "Получить статистику" и "Калькулятор ROI"
     return ReplyKeyboardMarkup(
-        [[KeyboardButton(text="Получить статистику")],
-         [KeyboardButton(text="Калькулятор ROI")]],
+        [
+            [KeyboardButton(text="Получить статистику")],
+            [KeyboardButton(text="/roi")]
+        ],
         resize_keyboard=True,
         one_time_keyboard=False
     )
