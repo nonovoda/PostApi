@@ -14,7 +14,7 @@ from telegram.helpers import escape_markdown
 API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
-# Новый API URL от поддержки Alanbase:
+# Новый URL API (сообщили в поддержке Alanbase)
 BASE_API_URL = "https://4rabet.api.alanbase.com/v1"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-bot.onrender.com/webhook")
 PORT = int(os.environ.get("PORT", 8000))
@@ -32,45 +32,29 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 # ------------------------------
-# Функции форматирования
+# Функция форматирования статистики
 # ------------------------------
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
-    meta = response_json.get("meta", {})
-    # Если meta пришёл как список, преобразуем в пустой словарь
-    if isinstance(meta, list):
-        meta = {}
-
+    # Для упрощения извлекаем только первую запись
     if not data:
         return "⚠️ *Статистика не найдена.*"
-
     stat = data[0]
     group_fields = stat.get("group_fields", [])
     date_info = group_fields[0].get("label") if group_fields else "Не указано"
-
     clicks = stat.get("click_count", "N/A")
     unique_clicks = stat.get("click_unique_count", "N/A")
-
     conversions = stat.get("conversions", {})
     confirmed = conversions.get("confirmed", {})
-    pending = conversions.get("pending", {})
-    hold = conversions.get("hold", {})
-    rejected = conversions.get("rejected", {})
-    total = conversions.get("total", {})
 
     message = (
         f"**📊 Статистика ({period_label})**\n\n"
         f"**Дата:** _{date_info}_\n\n"
         f"**Клики:**\n"
-        f"• Всего: *{clicks}*\n"
-        f"• Уникальные: *{unique_clicks}*\n\n"
+        f"• **Всего:** _{clicks}_\n"
+        f"• **Уникальные:** _{unique_clicks}_\n\n"
         f"**Конверсии:**\n"
-        f"• Подтвержденные: *{confirmed.get('count', 'N/A')}* (💰 *{confirmed.get('payout', 'N/A')} USD*)\n"
-        f"• Ожидающие: *{pending.get('count', 'N/A')}* (💰 *{pending.get('payout', 'N/A')} USD*)\n"
-        f"• В удержании: *{hold.get('count', 'N/A')}* (💰 *{hold.get('payout', 'N/A')} USD*)\n"
-        f"• Отклоненные: *{rejected.get('count', 'N/A')}* (💰 *{rejected.get('payout', 'N/A')} USD*)\n"
-        f"• Всего: *{total.get('count', 'N/A')}* (💰 *{total.get('payout', 'N/A')} USD*)\n\n"
-        f"**Страница:** *{meta.get('page', 'N/A')}* / **Последняя:** *{meta.get('last_page', 'N/A')}* | **Всего записей:** *{meta.get('total_count', 'N/A')}*"
+        f"• **Подтвержденные:** _{confirmed.get('count', 'N/A')}_ (💰 _{confirmed.get('payout', 'N/A')} USD_)\n"
     )
     return message
 
@@ -82,7 +66,6 @@ async def format_offers(response_json) -> str:
     message = "**📈 Топ офферы:**\n\n"
     for offer in offers:
         message += f"• **ID:** {offer.get('id')} | **Название:** {offer.get('name')}\n"
-    message += f"\n**Страница:** {meta.get('page', 'N/A')} / **Всего офферов:** {meta.get('total_count', 'N/A')}"
     return message
 
 # ------------------------------
@@ -97,7 +80,7 @@ async def init_telegram_app():
     logger.debug("Telegram-бот успешно запущен!")
 
 # ------------------------------
-# Эндпоинт для обработки постбеков от ПП
+# Обработка постбеков от ПП
 # ------------------------------
 async def postback_handler(request: Request):
     try:
@@ -107,6 +90,7 @@ async def postback_handler(request: Request):
         return {"error": "Некорректный JSON"}, 400
 
     logger.debug(f"Получен постбек: {data}")
+    # Извлекаем поля и формируем сообщение (без изменений)
     offer_id = data.get("offer_id", "N/A")
     sub_id2 = data.get("sub_id2", "N/A")
     goal = data.get("goal", "N/A")
@@ -119,18 +103,17 @@ async def postback_handler(request: Request):
 
     message = (
         "🔔 **Новая конверсия!**\n\n"
-        f"**📌 Оффер:** {offer_id}\n"
-        f"**🛠 Подход:** {sub_id2}\n"
-        f"**📊 Тип конверсии:** {goal}\n"
-        f"**💰 Выплата:** {revenue} {currency}\n"
-        f"**⚙️ Статус конверсии:** {status}\n"
-        f"**🎯 Кампания:** {sub_id4}\n"
-        f"**🎯 Адсет:** {sub_id5}\n"
-        f"**⏰ Время конверсии:** {conversion_date}"
+        f"**📌 Оффер:** _{offer_id}_\n"
+        f"**🛠 Подход:** _{sub_id2}_\n"
+        f"**📊 Тип конверсии:** _{goal}_\n"
+        f"**💰 Выплата:** _{revenue} {currency}_\n"
+        f"**⚙️ Статус конверсии:** _{status}_\n"
+        f"**🎯 Кампания:** _{sub_id4}_\n"
+        f"**🎯 Адсет:** _{sub_id5}_\n"
+        f"**⏰ Время конверсии:** _{conversion_date}_"
     )
 
     try:
-        # Экранируем markdown-сущности, чтобы избежать ошибок парсинга
         escaped_message = escape_markdown(message, version=2)
         await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=escaped_message, parse_mode="MarkdownV2")
         logger.debug("Постбек успешно отправлен в Telegram")
@@ -141,7 +124,7 @@ async def postback_handler(request: Request):
     return {"status": "ok"}
 
 # ------------------------------
-# Единый эндпоинт для обработки входящих запросов (Telegram и постбеки)
+# Единый эндпоинт для входящих запросов (Telegram и постбеки)
 # ------------------------------
 @app.post("/webhook")
 async def webhook_handler(request: Request):
@@ -168,19 +151,17 @@ async def webhook_handler(request: Request):
         return await postback_handler(request)
 
 # ------------------------------
-# Обработчики команд Telegram (асинхронные)
+# Обработчики команд Telegram
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     main_keyboard = [
         [KeyboardButton(text="Получить статистику")],
         [KeyboardButton(text="📈 Топ офферы")],
-        [KeyboardButton(text="🔄 Обновить данные")],
-        [KeyboardButton(text="Тестовый запрос")]
+        [KeyboardButton(text="🔄 Обновить данные")]
     ]
     reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
     logger.debug("Отправка основного меню")
     text = "Привет! Выберите команду:"
-    # Экранируем текст перед отправкой
     escaped_text = escape_markdown(text, version=2)
     await update.message.reply_text(escaped_text, reply_markup=reply_markup, parse_mode="MarkdownV2")
 
@@ -198,56 +179,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     now = datetime.now()
 
-    if text == "Тестовый запрос":
-        # Пустые параметры тестового запроса
-        params = {
-            "timezone": "",
-            "date_from": "",
-            "date_to": "",
-            "offer_ids": "",
-            "country_codes": "",
-            "sub1": "",
-            "sub2": "",
-            "sub3": "",
-            "sub4": "",
-            "sub5": "",
-            "sub6": "",
-            "sub7": "",
-            "sub8": "",
-            "sub9": "",
-            "sub10": "",
-            "tags": "",
-            "currency_code": ""
-        }
-        full_url = str(httpx.URL(f"{BASE_API_URL}/partner/statistic/common").copy_merge_params(params))
-        logger.debug(f"Полный URL тестового запроса: {full_url}")
-        logger.debug(f"Отправка тестового запроса к {BASE_API_URL}/partner/statistic/common с заголовками: {headers}")
-        start_time = datetime.now()
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
-            elapsed = (datetime.now() - start_time).total_seconds()
-            logger.debug(f"Тестовый запрос выполнен за {elapsed:.2f} сек: {response.status_code} - {response.text}")
-        except httpx.RequestError as exc:
-            logger.error(f"Ошибка тестового запроса к API: {exc}")
-            await update.message.reply_text(f"⚠️ Ошибка тестового запроса: {exc}")
-            return
-
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                message = f"✅ Тестовый запрос выполнен успешно:\n```\n{data}\n```"
-                escaped_message = escape_markdown(message, version=2)
-                await update.message.reply_text(escaped_message, parse_mode="MarkdownV2")
-            except Exception as e:
-                logger.error(f"Ошибка обработки JSON в тестовом запросе: {e}")
-                await update.message.reply_text("⚠️ Не удалось обработать ответ API тестового запроса.")
-        else:
-            message = f"⚠️ Тестовый запрос: Ошибка API {response.status_code}: {response.text}"
-            await update.message.reply_text(message)
-    
-    elif text == "Получить статистику":
-        period_keyboard = [["За час", "За день"], ["За прошлую неделю"], ["Назад"]]
+    if text == "Получить статистику":
+        period_keyboard = [
+            [KeyboardButton(text="За час"), KeyboardButton(text="За день")],
+            [KeyboardButton(text="За прошлую неделю")],
+            [KeyboardButton(text="Назад")]
+        ]
         reply_markup = ReplyKeyboardMarkup(period_keyboard, resize_keyboard=True, one_time_keyboard=True)
         logger.debug("Отправка подменю для выбора периода статистики")
         await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup)
@@ -259,9 +196,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             date_to = now.strftime("%Y-%m-%d %H:%M")
             group_by = "hour"
         elif text == "За день":
-            selected_date = now.strftime("%Y-%m-%d 00:00")
-            date_from = selected_date
-            date_to = selected_date
+            selected_date = now.strftime("%Y-%m-%d")
+            date_from = f"{selected_date} 00:00"
+            date_to = f"{selected_date} 23:59"
             group_by = "day"
         elif text == "За прошлую неделю":
             weekday = now.weekday()
@@ -302,7 +239,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         
-        # Экранируем сообщение перед отправкой
         escaped_message = escape_markdown(message, version=2)
         await update.message.reply_text(escaped_message, parse_mode="MarkdownV2")
     
@@ -341,8 +277,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         main_keyboard = [
             [KeyboardButton(text="Получить статистику")],
             [KeyboardButton(text="📈 Топ офферы")],
-            [KeyboardButton(text="🔄 Обновить данные")],
-            [KeyboardButton(text="Тестовый запрос")]
+            [KeyboardButton(text="🔄 Обновить данные")]
         ]
         reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
         logger.debug("Возврат в главное меню")
