@@ -6,7 +6,6 @@ import httpx
 from fastapi import FastAPI, Request
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from telegram.helpers import escape_markdown
 
 # ------------------------------
 # Конфигурация
@@ -44,6 +43,7 @@ async def format_statistics(response_json, period_label: str) -> str:
     unique_clicks = stat.get("click_unique_count", "N/A")
     conversions = stat.get("conversions", {})
     confirmed = conversions.get("confirmed", {})
+
     message = (
         f"**📊 Статистика ({period_label})**\n\n"
         f"**Дата:** _{date_info}_\n\n"
@@ -112,7 +112,7 @@ async def postback_handler(request: Request):
     )
 
     try:
-        # Перед отправкой не вызываем escape_markdown на всем сообщении – форматирование должно сохраниться.
+        # Отправляем сообщение без дополнительного экранирования
         await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="MarkdownV2")
         logger.debug("Постбек успешно отправлен в Telegram")
     except Exception as e:
@@ -160,7 +160,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
     logger.debug("Отправка основного меню")
     text = "Привет! Выберите команду:"
-    # В сообщении форматирование уже задано – не экранируем полностью.
     await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="MarkdownV2")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -199,8 +198,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         period_label = f"За {date_obj.strftime('%Y-%m-%d')}"
         date_str = date_obj.strftime("%Y-%m-%d")
         date_from = f"{date_str} 00:00"
-        # Для режима "За дату" API требует, чтобы date_to = date_from
-        date_to = date_from
+        date_to = date_from  # Для режима "За дату" date_from и date_to должны совпадать
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
@@ -246,8 +244,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         while current_date <= end_date:
             d_str = current_date.strftime("%Y-%m-%d")
             date_from = f"{d_str} 00:00"
-            # Для группировки по дню API требует, чтобы date_to совпадал с date_from
-            date_to = date_from
+            date_to = date_from  # date_to == date_from для группировки по дню
             params = {
                 "group_by": "day",
                 "timezone": "Europe/Moscow",
@@ -289,13 +286,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["awaiting_period"] = False
         return
 
-    # Основные варианты выбора периода
     if text == "За час":
         period_label = "За час"
         current_hour = now.replace(minute=0, second=0, microsecond=0)
         date_from = current_hour.strftime("%Y-%m-%d %H:%M")
-        # Для группировки по часу API требует, чтобы date_from и date_to совпадали
-        date_to = date_from
+        date_to = date_from  # Для группировки по часу должны совпадать
         params = {
             "group_by": "hour",
             "timezone": "Europe/Moscow",
@@ -319,8 +314,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         period_label = "За день"
         selected_date = now.strftime("%Y-%m-%d")
         date_from = f"{selected_date} 00:00"
-        # Для группировки по дню API требует, чтобы date_from == date_to
-        date_to = date_from
+        date_to = date_from  # Для группировки по дню должны совпадать
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
@@ -342,11 +336,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif text == "За прошлую неделю":
         period_label = "За прошлую неделю (первый день)"
-        # Для соответствия требованию API выбираем первый день прошлой недели
+        # Для соответствия требованиям API выбираем первый день прошлой недели
         last_week_start = (now - timedelta(days=now.weekday() + 7)).replace(hour=0, minute=0, second=0, microsecond=0)
         date_from = last_week_start.strftime("%Y-%m-%d %H:%M")
-        # Для группировки по дню API требуется, чтобы date_from == date_to
-        date_to = date_from
+        date_to = date_from  # Для группировки по дню должны совпадать
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
