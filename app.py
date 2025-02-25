@@ -25,7 +25,12 @@ logger = logging.getLogger(__name__)
 logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API_KEY != 'ВАШ_API_КЛЮЧ' else API_KEY}, TELEGRAM_TOKEN = {TELEGRAM_TOKEN[:4]+'****' if TELEGRAM_TOKEN != 'ВАШ_ТОКЕН' else TELEGRAM_TOKEN}, TELEGRAM_CHAT_ID = {TELEGRAM_CHAT_ID}")
 
 # ------------------------------
-# Функция форматирования статистики (общей)
+# Создание единственного экземпляра FastAPI
+# ------------------------------
+app = FastAPI()
+
+# ------------------------------
+# Функции форматирования
 # ------------------------------
 def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
@@ -63,9 +68,6 @@ def format_statistics(response_json, period_label: str) -> str:
     )
     return message
 
-# ------------------------------
-# Функция форматирования офферов (топ офферы)
-# ------------------------------
 def format_offers(response_json) -> str:
     offers = response_json.get("data", [])
     meta = response_json.get("meta", {})
@@ -77,9 +79,6 @@ def format_offers(response_json) -> str:
     message += f"\nℹ️ Страница: {meta.get('page', 'N/A')} / Всего: {meta.get('total_count', 'N/A')}"
     return message
 
-# ------------------------------
-# Функция форматирования конверсии (тестовая конверсия)
-# ------------------------------
 def format_conversion(response_json) -> str:
     data = response_json.get("data", [])
     if not data:
@@ -97,9 +96,48 @@ def format_conversion(response_json) -> str:
     return message
 
 # ------------------------------
-# Обработка входящих постбеков от ПП
+# Инициализация Telegram-бота
 # ------------------------------
-@app.post("/postback")
+telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+async def init_telegram_app():
+    logger.debug("Инициализация и запуск Telegram-бота...")
+    await telegram_app.initialize()
+    await telegram_app.start()
+    logger.debug("Telegram-бот успешно запущен!")
+
+# ------------------------------
+# Обработка входящих запросов (Telegram и постбеки)
+# ------------------------------
+@app.post("/webhook")
+async def webhook_handler(request: Request):
+    logger.debug("Получен запрос на /webhook")
+    try:
+        data = await request.json()
+        logger.debug(f"Полученные данные: {data}")
+    except Exception as e:
+        logger.error(f"Ошибка при разборе JSON: {e}")
+        return {"error": "Некорректный JSON"}, 400
+
+    # Если присутствует update_id – это обновление от Telegram
+    if "update_id" in data:
+        update = Update.de_json(data, telegram_app.bot)
+        if not telegram_app.running:
+            logger.warning("Telegram Application не запущено, выполняется инициализация...")
+            await init_telegram_app()
+        try:
+            await telegram_app.process_update(update)
+            return {"status": "ok"}
+        except Exception as e:
+            logger.error(f"Ошибка обработки обновления: {e}")
+            return {"error": "Ошибка сервера"}, 500
+    else:
+        # Иначе обрабатываем как постбек
+        return await postback_handler(request)
+
+# ------------------------------
+# Эндпоинт для обработки постбеков от ПП
+# ------------------------------
 async def postback_handler(request: Request):
     try:
         data = await request.json()
@@ -108,8 +146,6 @@ async def postback_handler(request: Request):
         return {"error": "Некорректный JSON"}, 400
 
     logger.debug(f"Получен постбек: {data}")
-
-    # Извлекаем необходимые поля
     offer_id = data.get("offer_id", "N/A")
     sub_id2 = data.get("sub_id2", "N/A")
     goal = data.get("goal", "N/A")
@@ -133,7 +169,7 @@ async def postback_handler(request: Request):
     )
 
     try:
-        await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="Markdown")
+        await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="Markdown")
         logger.debug("Постбек успешно отправлен в Telegram")
     except Exception as e:
         logger.error(f"Ошибка отправки постбека в Telegram: {e}")
@@ -142,67 +178,10 @@ async def postback_handler(request: Request):
     return {"status": "ok"}
 
 # ------------------------------
-# Эндпоинт для получения готовых ссылок с макросами
+# Обработчики команд Telegram
 # ------------------------------
-@app.get("/postback_links")
-async def postback_links():
-    link1 = ("https://postapi-x4hf.onrender.com?"
-             "offer_id={offer_id}&sub_id2={sub_id2}&goal={goal}&"
-             "revenue={revenue}&currency={currency}&status={status}&"
-             "sub_id4={sub_id4}&sub_id5={sub_id5}&conversion_date={conversion_date}")
-    link2 = ("https://apiposts-production-1dea.up.railway.app?"
-             "offer_id={offer_id}&sub_id2={sub_id2}&goal={goal}&"
-             "revenue={revenue}&currency={currency}&status={status}&"
-             "sub_id4={sub_id4}&sub_id5={sub_id5}&conversion_date={conversion_date}")
-    return {"link1": link1, "link2": link2}
-
-# ------------------------------
-# Инициализация Telegram-бота
-# ------------------------------
-application = Application.builder().token(TELEGRAM_TOKEN).build()
-
-async def init_application():
-    logger.debug("Инициализация и запуск Telegram-бота...")
-    await application.initialize()
-    await application.start()
-    logger.debug("Бот успешно запущен!")
-
-# ------------------------------
-# FastAPI сервер для обработки вебхуков (Telegram и постбеки)
-# ------------------------------
-app = FastAPI()
-
-@app.post("/webhook")
-async def telegram_webhook(request: Request):
-    logger.debug("Получен запрос на /webhook")
-    try:
-        data = await request.json()
-        logger.debug(f"Полученные данные: {data}")
-    except Exception as e:
-        logger.error(f"Ошибка при разборе JSON: {e}")
-        return {"error": "Некорректный JSON"}, 400
-
-    # Предполагаем, что если в JSON есть поле "update_id" – это запрос от Telegram,
-    # иначе, если, например, присутствует "offer_id", это постбек от ПП.
-    if "update_id" in data:
-        update = Update.de_json(data, application.bot)
-        if not application.running:
-            logger.warning("Telegram Application не запущено, выполняется инициализация...")
-            await init_application()
-        try:
-            await application.process_update(update)
-            return {"status": "ok"}
-        except Exception as e:
-            logger.error(f"Ошибка обработки обновления: {e}")
-            return {"error": "Ошибка сервера"}, 500
-    else:
-        # Если это не Telegram-обновление, то пробуем обработать как постбек.
-        return await postback_handler(request)
-
-# ------------------------------
-# Обработчики команд и сообщений Telegram
-# ------------------------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@telegram_app.on_message(filters.COMMAND("start"))
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["📊 Статистика за день", "🚀 Тестовая конверсия"],
         ["🔍 Детальная статистика", "📈 Топ офферы"],
@@ -212,6 +191,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.debug("Отправка основного меню")
     await update.message.reply_text("Привет! Выберите команду:", reply_markup=reply_markup)
 
+@telegram_app.on_message(filters.TEXT & ~filters.COMMAND)
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
@@ -224,7 +204,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Content-Type": "application/json",
         "User-Agent": "TelegramBot/1.0 (compatible; Alanbase API integration)"
     }
-
     now = datetime.now()
     
     if text == "Получить статистику":
@@ -415,9 +394,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Неизвестная команда. Попробуйте снова.")
 
-# Регистрация обработчиков команд и сообщений Telegram
-application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
+# Регистрация обработчиков Telegram
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
 
 # ------------------------------
 # Основной запуск
@@ -425,5 +404,6 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_h
 if __name__ == "__main__":
     import uvicorn
     loop = asyncio.get_event_loop()
-    loop.create_task(init_application())
+    loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
