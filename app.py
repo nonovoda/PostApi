@@ -37,7 +37,7 @@ def get_main_menu():
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(text="📊 Получить статистику")],
-            [KeyboardButton(text="💰 Калькулятор ROI")]  # Кнопка отправляет текст, который надо обработать
+            [KeyboardButton(text="💰 Калькулятор ROI")]  # Кнопка отправляет текст, который должен совпадать с командой /roi
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -140,7 +140,7 @@ async def postback_handler(request: Request):
     return {"status": "ok"}
 
 # ------------------------------
-# Эндпоинт для Telegram-обновлений
+# Эндпоинты для Telegram
 # ------------------------------
 @app.post("/webhook")
 async def telegram_webhook_handler(request: Request):
@@ -167,24 +167,21 @@ async def telegram_webhook_handler(request: Request):
         logger.error(f"Ошибка обработки обновления: {e}")
         return {"error": "Ошибка сервера"}, 500
 
-# ------------------------------
-# Эндпоинт для постбеков
-# ------------------------------
 @app.post("/postback")
 async def postback_endpoint(request: Request):
     logger.debug("Получен запрос на /postback (Постбек)")
     return await postback_handler(request)
 
 # ------------------------------
-# Константы для калькулятора ROI
+# Константы для ROI-калькулятора
 # ------------------------------
 ROI_INVESTMENT, ROI_INCOME = range(2)
 
 # ------------------------------
-# Функции для калькулятора ROI
+# Функции для ROI-калькулятора
 # ------------------------------
 async def roi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Здесь мы не удаляем предыдущее сообщение, т.к. ConversationHandler запустит диалог по команде /roi
+    # Диалог запускается по команде /roi
     await update.message.reply_text("Введите сумму инвестиций:")
     return ROI_INVESTMENT
 
@@ -231,7 +228,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
     main_keyboard = get_main_menu()
-    logger.debug("Отправка основного меню")
+    logger.debug("Отправка главного меню")
     text = "Привет! Выберите команду:"
     sent_msg = await update.message.reply_text(text, reply_markup=main_keyboard, parse_mode="HTML")
     context.user_data["last_bot_message_id"] = sent_msg.message_id
@@ -255,9 +252,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     logger.debug(f"Получено сообщение: {text}")
 
-    # Если пользователь нажал кнопку "💰 Калькулятор ROI", инициируем команду /roi
+    # Если пользователь нажал кнопку "💰 Калькулятор ROI" или отправил команду /roi, запускаем ROI-диалог
     if text == "💰 Калькулятор ROI" or text == "/roi":
-        # Отправляем команду /roi, чтобы запустить ConversationHandler
         return await roi_command(update, context)
 
     headers = {
@@ -269,7 +265,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "📊 Получить статистику":
         reply_markup = get_statistics_menu()
-        logger.debug("Отправка подменю для выбора периода статистики")
+        logger.debug("Отправка подменю для статистики")
         sent_msg = await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup, parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
@@ -277,7 +273,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting_period"):
         parts = text.split(",")
         if len(parts) != 2:
-            sent_msg = await update.message.reply_text("❗ Неверный формат диапазона. Используйте: YYYY-MM-DD,YYYY-MM-DD", parse_mode="HTML")
+            sent_msg = await update.message.reply_text("❗ Неверный формат. Используйте: YYYY-MM-DD,YYYY-MM-DD", parse_mode="HTML")
             context.user_data["last_bot_message_id"] = sent_msg.message_id
             return
         try:
@@ -326,7 +322,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     days_count += 1
             current_date += timedelta(days=1)
         if days_count == 0:
-            sent_msg = await update.message.reply_text("⚠️ Статистика не найдена за указанный период.", parse_mode="HTML", reply_markup=get_main_menu())
+            sent_msg = await update.message.reply_text("⚠️ Статистика не найдена.", parse_mode="HTML", reply_markup=get_main_menu())
             context.user_data["last_bot_message_id"] = sent_msg.message_id
             context.user_data["awaiting_period"] = False
             return
@@ -429,12 +425,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["last_bot_message_id"] = sent_msg.message_id
 
 # ------------------------------
-# Регистрация обработчиков Telegram
+# Регистрация обработчиков
 # ------------------------------
 telegram_app.add_handler(CommandHandler("start", start_command))
 telegram_app.add_handler(CommandHandler("roi", roi_command))
-telegram_app.add_handler(roi_conv_handler)
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
 
 # Регистрируем ConversationHandler для ROI-калькулятора
 roi_conv_handler = ConversationHandler(
@@ -446,6 +440,7 @@ roi_conv_handler = ConversationHandler(
     fallbacks=[CommandHandler("cancel", roi_cancel)]
 )
 telegram_app.add_handler(roi_conv_handler)
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
 
 # ------------------------------
 # Основной запуск приложения
