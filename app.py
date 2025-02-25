@@ -33,8 +33,10 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 def get_main_menu():
+    # Главное меню с кнопками "Получить статистику" и "Калькулятор ROI"
     return ReplyKeyboardMarkup(
-        [[KeyboardButton(text="Получить статистику")]],
+        [[KeyboardButton(text="Получить статистику")],
+         [KeyboardButton(text="Калькулятор ROI")]],
         resize_keyboard=True,
         one_time_keyboard=False
     )
@@ -193,6 +195,7 @@ async def roi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def roi_investment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     try:
+        # Принимаем и целые, и дробные числа
         investment = float(text)
     except ValueError:
         await update.message.reply_text("Неверный формат числа. Введите сумму инвестиций числом:")
@@ -255,6 +258,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text.strip()
     logger.debug(f"Получено сообщение: {text}")
+
+    # Если пользователь нажал кнопку "Калькулятор ROI", запускаем команду /roi
+    if text == "Калькулятор ROI":
+        return await roi_command(update, context)
 
     headers = {
         "API-KEY": API_KEY,
@@ -454,3 +461,4 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
