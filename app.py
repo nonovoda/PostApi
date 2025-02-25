@@ -6,7 +6,6 @@ import httpx
 from fastapi import FastAPI, Request
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from telegram.helpers import escape_markdown
 
 # ------------------------------
 # Конфигурация
@@ -31,12 +30,12 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 # ------------------------------
-# Функция форматирования статистики согласно API
+# Функция форматирования статистики согласно API (HTML формат)
 # ------------------------------
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
     if not data:
-        return "⚠️ *Статистика не найдена.*"
+        return "⚠️ <i>Статистика не найдена.</i>"
     stat = data[0]
     group_fields = stat.get("group_fields", [])
     date_info = group_fields[0].get("label") if group_fields else "Не указано"
@@ -44,29 +43,28 @@ async def format_statistics(response_json, period_label: str) -> str:
     unique_clicks = stat.get("click_unique_count", "N/A")
     conversions = stat.get("conversions", {})
     confirmed = conversions.get("confirmed", {})
-
     message = (
-        f"**📊 Статистика ({period_label})**\n\n"
-        f"**Дата:** _{date_info}_\n\n"
-        f"**Клики:**\n"
-        f"• **Всего:** _{clicks}_\n"
-        f"• **Уникальные:** _{unique_clicks}_\n\n"
-        f"**Конверсии:**\n"
-        f"• **Подтвержденные:** _{confirmed.get('count', 'N/A')}_ (💰 _{confirmed.get('payout', 'N/A')} USD_)\n"
+        f"<b>📊 Статистика ({period_label})</b>\n\n"
+        f"<b>Дата:</b> <i>{date_info}</i>\n\n"
+        f"<b>Клики:</b>\n"
+        f"• <b>Всего:</b> <i>{clicks}</i>\n"
+        f"• <b>Уникальные:</b> <i>{unique_clicks}</i>\n\n"
+        f"<b>Конверсии:</b>\n"
+        f"• <b>Подтвержденные:</b> <i>{confirmed.get('count', 'N/A')}</i> (💰 <i>{confirmed.get('payout', 'N/A')} USD</i>)\n"
     )
     return message
 
 # ------------------------------
-# Функция форматирования офферов (рабочая версия)
+# Функция форматирования офферов (HTML формат)
 # ------------------------------
 async def format_offers(response_json) -> str:
     offers = response_json.get("data", [])
     if not offers:
-        return "⚠️ *Офферы не найдены.*"
-    message = "**📈 Топ офферы:**\n\n"
-    # Чтобы избежать ошибки MarkdownV2 для символа '|', заменяем его вручную
+        return "⚠️ <i>Офферы не найдены.</i>"
+    message = "<b>📈 Топ офферы:</b>\n\n"
     for offer in offers:
-        message += f"• **ID:** {offer.get('id')} \\| **Название:** {offer.get('name')}\n"
+        # Экранируем вертикальную черту вручную, если необходимо
+        message += f"• <b>ID:</b> {offer.get('id')} \\| <b>Название:</b> {offer.get('name')}\n"
     return message
 
 # ------------------------------
@@ -81,7 +79,7 @@ async def init_telegram_app():
     logger.debug("Telegram-бот успешно запущен!")
 
 # ------------------------------
-# Обработка постбеков от ПП (рабочая версия)
+# Обработка постбеков от ПП (HTML формат)
 # ------------------------------
 async def postback_handler(request: Request):
     try:
@@ -102,20 +100,19 @@ async def postback_handler(request: Request):
     conversion_date = data.get("conversion_date", "N/A")
 
     message = (
-        "🔔 **Новая конверсия!**\n\n"
-        f"**📌 Оффер:** _{offer_id}_\n"
-        f"**🛠 Подход:** _{sub_id2}_\n"
-        f"**📊 Тип конверсии:** _{goal}_\n"
-        f"**💰 Выплата:** _{revenue} {currency}_\n"
-        f"**⚙️ Статус конверсии:** _{status}_\n"
-        f"**🎯 Кампания:** _{sub_id4}_\n"
-        f"**🎯 Адсет:** _{sub_id5}_\n"
-        f"**⏰ Время конверсии:** _{conversion_date}_"
+        "🔔 <b>Новая конверсия!</b>\n\n"
+        f"<b>📌 Оффер:</b> <i>{offer_id}</i>\n"
+        f"<b>🛠 Подход:</b> <i>{sub_id2}</i>\n"
+        f"<b>📊 Тип конверсии:</b> <i>{goal}</i>\n"
+        f"<b>💰 Выплата:</b> <i>{revenue} {currency}</i>\n"
+        f"<b>⚙️ Статус конверсии:</b> <i>{status}</i>\n"
+        f"<b>🎯 Кампания:</b> <i>{sub_id4}</i>\n"
+        f"<b>🎯 Адсет:</b> <i>{sub_id5}</i>\n"
+        f"<b>⏰ Время конверсии:</b> <i>{conversion_date}</i>"
     )
 
     try:
-        # Отправляем сообщение как есть (без дополнительного экранирования всего текста)
-        await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="MarkdownV2")
+        await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="HTML")
         logger.debug("Постбек успешно отправлен в Telegram")
     except Exception as e:
         logger.error(f"Ошибка отправки постбека в Telegram: {e}")
@@ -162,7 +159,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
     logger.debug("Отправка основного меню")
     text = "Привет! Выберите команду:"
-    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="MarkdownV2")
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
@@ -187,7 +184,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = ReplyKeyboardMarkup(period_keyboard, resize_keyboard=True, one_time_keyboard=True)
         logger.debug("Отправка подменю для выбора периода статистики")
-        await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup)
+        await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup, parse_mode="HTML")
         return
 
     # Обработка ввода даты (команда "За дату")
@@ -195,7 +192,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             date_obj = datetime.strptime(text, "%Y-%m-%d").date()
         except ValueError:
-            await update.message.reply_text("❗ Неверный формат даты. Используйте формат YYYY-MM-DD.")
+            await update.message.reply_text("❗ Неверный формат даты. Используйте формат YYYY-MM-DD.", parse_mode="HTML")
             return
         period_label = f"За {date_obj.strftime('%Y-%m-%d')}"
         date_str = date_obj.strftime("%Y-%m-%d")
@@ -218,7 +215,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="HTML")
         context.user_data["awaiting_date"] = False
         return
 
@@ -226,16 +223,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting_period"):
         parts = text.split(",")
         if len(parts) != 2:
-            await update.message.reply_text("❗ Неверный формат диапазона. Используйте: YYYY-MM-DD,YYYY-MM-DD")
+            await update.message.reply_text("❗ Неверный формат диапазона. Используйте: YYYY-MM-DD,YYYY-MM-DD", parse_mode="HTML")
             return
         try:
             start_date = datetime.strptime(parts[0].strip(), "%Y-%m-%d").date()
             end_date = datetime.strptime(parts[1].strip(), "%Y-%m-%d").date()
         except ValueError:
-            await update.message.reply_text("❗ Неверный формат даты. Используйте формат YYYY-MM-DD.")
+            await update.message.reply_text("❗ Неверный формат даты. Используйте формат YYYY-MM-DD.", parse_mode="HTML")
             return
         if start_date > end_date:
-            await update.message.reply_text("❗ Начальная дата должна быть раньше конечной.")
+            await update.message.reply_text("❗ Начальная дата должна быть раньше конечной.", parse_mode="HTML")
             return
         total_clicks = 0
         total_unique = 0
@@ -258,7 +255,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 async with httpx.AsyncClient(timeout=10) as client:
                     response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
             except Exception as e:
-                await update.message.reply_text(f"⚠️ Ошибка запроса: {e}")
+                await update.message.reply_text(f"⚠️ Ошибка запроса: {e}", parse_mode="HTML")
                 return
             if response.status_code == 200:
                 data = response.json()
@@ -272,19 +269,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     days_count += 1
             current_date += timedelta(days=1)
         if days_count == 0:
-            await update.message.reply_text("⚠️ Статистика не найдена за указанный период.")
+            await update.message.reply_text("⚠️ Статистика не найдена за указанный период.", parse_mode="HTML")
             context.user_data["awaiting_period"] = False
             return
         period_label = f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
         message = (
-            f"**📊 Статистика ({period_label})**\n\n"
-            f"**Клики:**\n"
-            f"• **Всего:** _{total_clicks}_\n"
-            f"• **Уникальные:** _{total_unique}_\n\n"
-            f"**Конверсии (подтвержденные):** _{total_confirmed}_\n"
-            f"**Доход:** _{total_income:.2f} USD_"
+            f"<b>📊 Статистика ({period_label})</b>\n\n"
+            f"<b>Клики:</b>\n"
+            f"• <b>Всего:</b> <i>{total_clicks}</i>\n"
+            f"• <b>Уникальные:</b> <i>{total_unique}</i>\n\n"
+            f"<b>Конверсии (подтвержденные):</b> <i>{total_confirmed}</i>\n"
+            f"<b>Доход:</b> <i>{total_income:.2f} USD</i>"
         )
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="HTML")
         context.user_data["awaiting_period"] = False
         return
 
@@ -311,7 +308,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="HTML")
     
     elif text == "За день":
         period_label = "За день"
@@ -335,7 +332,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="HTML")
     
     elif text == "За прошлую неделю":
         # Агрегируем статистику за прошлую неделю (с понедельника по воскресенье)
@@ -361,7 +358,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 async with httpx.AsyncClient(timeout=10) as client:
                     response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
             except Exception as e:
-                await update.message.reply_text(f"⚠️ Ошибка запроса: {e}")
+                await update.message.reply_text(f"⚠️ Ошибка запроса: {e}", parse_mode="HTML")
                 return
             if response.status_code == 200:
                 data = response.json()
@@ -377,21 +374,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message = "⚠️ Статистика не найдена за указанный период."
         else:
             message = (
-                f"**📊 Статистика ({period_label})**\n\n"
-                f"**Клики:**\n"
-                f"• **Всего:** _{total_clicks}_\n"
-                f"• **Уникальные:** _{total_unique}_\n\n"
-                f"**Конверсии (подтвержденные):** _{total_confirmed}_\n"
-                f"**Доход:** _{total_income:.2f} USD_"
+                f"<b>📊 Статистика ({period_label})</b>\n\n"
+                f"<b>Клики:</b>\n"
+                f"• <b>Всего:</b> <i>{total_clicks}</i>\n"
+                f"• <b>Уникальные:</b> <i>{total_unique}</i>\n\n"
+                f"<b>Конверсии (подтвержденные):</b> <i>{total_confirmed}</i>\n"
+                f"<b>Доход:</b> <i>{total_income:.2f} USD</i>"
             )
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="HTML")
     
     elif text == "За дату":
-        await update.message.reply_text("🗓 Введите дату в формате YYYY-MM-DD:")
+        await update.message.reply_text("🗓 Введите дату в формате YYYY-MM-DD:", parse_mode="HTML")
         context.user_data["awaiting_date"] = True
     
     elif text == "За период":
-        await update.message.reply_text("🗓 Введите диапазон дат в формате YYYY-MM-DD,YYYY-MM-DD:")
+        await update.message.reply_text("🗓 Введите диапазон дат в формате YYYY-MM-DD,YYYY-MM-DD:", parse_mode="HTML")
         context.user_data["awaiting_period"] = True
     
     elif text == "📈 Топ офферы":
@@ -407,7 +404,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.debug(f"Получен ответ API: {response.status_code} - {response.text}")
         except Exception as exc:
             logger.error(f"Ошибка запроса к API: {exc}")
-            await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
+            await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}", parse_mode="HTML")
             return
         
         if response.status_code == 200:
@@ -419,12 +416,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = "⚠️ Не удалось обработать ответ API."
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-        # Экранируем вертикальную черту, чтобы Telegram MarkdownV2 распознал сообщение корректно
-        message = message.replace("|", "\\|")
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
+        # Заменяем вертикальную черту на экранированную версию для HTML, если необходимо
+        message = message.replace("|", "&#124;")
+        await update.message.reply_text(message, parse_mode="HTML")
     
     elif text == "🔄 Обновить данные":
-        await update.message.reply_text("🔄 Данные обновлены!")
+        await update.message.reply_text("🔄 Данные обновлены!", parse_mode="HTML")
     
     elif text == "Назад":
         main_keyboard = [
@@ -434,10 +431,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
         logger.debug("Возврат в главное меню")
-        await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup)
+        await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup, parse_mode="HTML")
     
     else:
-        await update.message.reply_text("Неизвестная команда. Попробуйте снова.")
+        await update.message.reply_text("Неизвестная команда. Попробуйте снова.", parse_mode="HTML")
 
 # ------------------------------
 # Регистрация обработчиков Telegram
