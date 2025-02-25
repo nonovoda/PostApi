@@ -201,7 +201,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         period_label = f"За {date_obj.strftime('%Y-%m-%d')}"
         date_str = date_obj.strftime("%Y-%m-%d")
         date_from = f"{date_str} 00:00"
-        date_to = date_from
+        date_to = date_from  # Для режима "За дату" должны совпадать
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
@@ -219,7 +219,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="MarkdownV2")
         context.user_data["awaiting_date"] = False
         return
 
@@ -247,7 +247,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         while current_date <= end_date:
             d_str = current_date.strftime("%Y-%m-%d")
             date_from = f"{d_str} 00:00"
-            date_to = date_from
+            date_to = date_from  # Для группировки по дню
             params = {
                 "group_by": "day",
                 "timezone": "Europe/Moscow",
@@ -278,7 +278,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         period_label = f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
         message = (
-            f"**📊 Статистика ({escape_markdown(period_label, version=2)})**\n\n"
+            f"**📊 Статистика ({period_label})**\n\n"
             f"**Клики:**\n"
             f"• **Всего:** _{total_clicks}_\n"
             f"• **Уникальные:** _{total_unique}_\n\n"
@@ -294,7 +294,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         period_label = "За час"
         current_hour = now.replace(minute=0, second=0, microsecond=0)
         date_from = current_hour.strftime("%Y-%m-%d %H:%M")
-        date_to = date_from
+        date_to = date_from  # Для группировки по часу
         params = {
             "group_by": "hour",
             "timezone": "Europe/Moscow",
@@ -312,13 +312,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "За день":
         period_label = "За день"
         selected_date = now.strftime("%Y-%m-%d")
         date_from = f"{selected_date} 00:00"
-        date_to = f"{selected_date} 23:59"
+        # Для группировки по дню API требует, чтобы date_from и date_to совпадали
+        date_to = date_from
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
@@ -336,33 +337,60 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "За прошлую неделю":
-        period_label = "За прошлую неделю (период)"
+        # Аггрегируем статистику за всю прошлую неделю (с понедельника по воскресенье)
         weekday = now.weekday()
-        last_monday = now - timedelta(days=weekday + 7)
-        date_from = last_monday.replace(hour=0, minute=0).strftime("%Y-%m-%d %H:%M")
+        last_monday = (now - timedelta(days=weekday + 7)).date()
         last_sunday = last_monday + timedelta(days=6)
-        date_to = last_sunday.replace(hour=23, minute=59).strftime("%Y-%m-%d %H:%M")
-        params = {
-            "group_by": "hour",
-            "timezone": "Europe/Moscow",
-            "date_from": date_from,
-            "date_to": date_to,
-            "currency_code": "USD"
-        }
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
+        period_label = f"За {last_monday.strftime('%Y-%m-%d')} - {last_sunday.strftime('%Y-%m-%d')}"
+        total_clicks = 0
+        total_unique = 0
+        total_confirmed = 0
+        total_income = 0.0
+        days_count = 0
+        current_date = last_monday
+        while current_date <= last_sunday:
+            d_str = current_date.strftime("%Y-%m-%d")
+            date_from = f"{d_str} 00:00"
+            date_to = date_from  # Для группировки по дню
+            params = {
+                "group_by": "day",
+                "timezone": "Europe/Moscow",
+                "date_from": date_from,
+                "date_to": date_to,
+                "currency_code": "USD"
+            }
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
+            except Exception as e:
+                await update.message.reply_text(f"⚠️ Ошибка запроса: {e}")
+                return
             if response.status_code == 200:
                 data = response.json()
-                message = await format_statistics(data, period_label)
-            else:
-                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-        except Exception as e:
-            message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
+                if data.get("data"):
+                    stat = data["data"][0]
+                    total_clicks += int(stat.get("click_count", 0) or 0)
+                    total_unique += int(stat.get("click_unique_count", 0) or 0)
+                    conv = stat.get("conversions", {})
+                    total_confirmed += int(conv.get("confirmed", {}).get("count", 0) or 0)
+                    total_income += float(conv.get("confirmed", {}).get("income", 0) or 0)
+                    days_count += 1
+            current_date += timedelta(days=1)
+        if days_count == 0:
+            await update.message.reply_text("⚠️ Статистика не найдена за указанный период.")
+            return
+        message = (
+            f"**📊 Статистика ({period_label})**\n\n"
+            f"**Клики:**\n"
+            f"• **Всего:** _{total_clicks}_\n"
+            f"• **Уникальные:** _{total_unique}_\n\n"
+            f"**Конверсии (подтвержденные):** _{total_confirmed}_\n"
+            f"**Доход:** _{total_income:.2f} USD_"
+        )
+        await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "За дату":
         await update.message.reply_text("🗓 Введите дату в формате YYYY-MM-DD:")
@@ -397,7 +425,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = "⚠️ Не удалось обработать ответ API."
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "🔄 Обновить данные":
         await update.message.reply_text("🔄 Данные обновлены!")
@@ -429,3 +457,4 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
