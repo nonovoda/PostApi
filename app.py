@@ -178,7 +178,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
-            await update.message.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
         except Exception as e:
             logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
     main_keyboard = get_main_menu()
@@ -197,13 +197,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.debug(f"Не удалось удалить сообщение пользователя: {e}")
 
-    # Удаляем предыдущий ответ бота (для команд, не для постбеков)
-    last_msg_id = context.user_data.get("last_bot_message_id")
-    if last_msg_id:
-        try:
-            await update.message.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
-        except Exception as e:
-            logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
+ # Удаляем предыдущий ответ бота (для команд, не для постбеков)
+last_msg_id = context.user_data.get("last_bot_message_id")
+if last_msg_id:
+    try:
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
+    except Exception as e:
+        logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
 
     text = update.message.text.strip()
     logger.debug(f"Получено сообщение: {text}")
