@@ -175,19 +175,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    # Удаляем входящее сообщение для чистоты диалога
+    # Удаляем входящее сообщение пользователя для чистоты диалога
     try:
         await update.message.delete()
     except Exception as e:
-        logger.debug(f"Не удалось удалить сообщение: {e}")
+        logger.debug(f"Не удалось удалить сообщение пользователя: {e}")
 
+    # Получаем текст и обрезаем лишние пробелы
     text = update.message.text.strip()
     logger.debug(f"Получено сообщение: {text}")
 
-    headers = {
-        "API-KEY": API_KEY,
-        "Content-Type": "application/json",
-        "User-Agent": "TelegramBot/1.0 (compatible; Alanbase API integration)"
+    # Удаляем предыдущее сообщение, отправленное ботом (если оно существует)
+    last_msg_id = context.user_data.get("last_bot_message_id")
+    if last_msg_id:
+        try:
+            await update.message.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=last_msg_id
+            )
+        except Exception as e:
+            logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
+
+    # Далее идет основная логика обработки команд...
+
     }
     now = datetime.now()  # Если требуется, можно использовать ZoneInfo("Europe/Moscow")
 
@@ -241,7 +251,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     total_unique += int(stat.get("click_unique_count", 0) or 0)
                     conv = stat.get("conversions", {})
                     total_confirmed += int(conv.get("confirmed", {}).get("count", 0) or 0)
-                    total_income += float(conv.get("confirmed", {}).get("income", 0) or 0)
+                    total_income += float(conv.get("confirmed", {}).get("payout", 0) or 0)
                     days_count += 1
             current_date += timedelta(days=1)
         if days_count == 0:
