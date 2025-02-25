@@ -181,20 +181,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.debug(f"Не удалось удалить сообщение пользователя: {e}")
 
-    # Получаем текст и обрезаем лишние пробелы
     text = update.message.text.strip()
     logger.debug(f"Получено сообщение: {text}")
 
-    # Удаляем предыдущее сообщение, отправленное ботом (если оно существует)
+    # Удаляем предыдущее сообщение бота, если оно существует
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
-            await update.message.bot.delete_message(
-                chat_id=update.effective_chat.id,
-                message_id=last_msg_id
-            )
+            await update.message.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
         except Exception as e:
             logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
+
+    headers = {
+        "API-KEY": API_KEY,
+        "Content-Type": "application/json",
+        "User-Agent": "TelegramBot/1.0 (compatible; Alanbase API integration)"
+    }
 
     # Далее идет основная логика обработки команд...
 
