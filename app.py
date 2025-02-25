@@ -51,7 +51,6 @@ def get_statistics_menu():
 
 # ------------------------------
 # Функция форматирования статистики согласно API (HTML формат)
-# Для одиночного запроса (например, "За сегодня")
 # ------------------------------
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
@@ -72,8 +71,8 @@ async def format_statistics(response_json, period_label: str) -> str:
         f"• <b>Всего:</b> <i>{clicks}</i>\n"
         f"• <b>Уникальные:</b> <i>{unique_clicks}</i>\n\n"
         f"<b>Конверсии:</b>\n"
-        f"<b>✅ Подтвержденные:</b> <i>{confirmed.get('count', 'N/A')}</i>\n"
-        f"<b>💰 Доход:</b> <i>{confirmed.get('payout', 'N/A')} USD</i>\n"
+        f"✅ <b>Подтвержденные:</b> <i>{confirmed.get('count', 'N/A')}</i>\n"
+        f"💰 <b>Доход:</b> <i>{confirmed.get('payout', 'N/A')} USD</i>\n"
     )
     return message
 
@@ -169,7 +168,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     main_keyboard = get_main_menu()
     logger.debug("Отправка основного меню")
     text = "Привет! Выберите команду:"
-    await update.message.reply_text(text, reply_markup=main_keyboard, parse_mode="HTML")
+    sent_msg = await update.message.reply_text(text, reply_markup=main_keyboard, parse_mode="HTML")
+    context.user_data["last_bot_message_id"] = sent_msg.message_id
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
@@ -197,31 +197,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Content-Type": "application/json",
         "User-Agent": "TelegramBot/1.0 (compatible; Alanbase API integration)"
     }
-
-    # Далее идет основная логика обработки команд...
-
-    now = datetime.now()  # Если требуется, можно использовать ZoneInfo("Europe/Moscow")
+    now = datetime.now()  # При необходимости можно использовать ZoneInfo("Europe/Moscow")
 
     if text == "Получить статистику":
         reply_markup = get_statistics_menu()
         logger.debug("Отправка подменю для выбора периода статистики")
-        await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup, parse_mode="HTML")
+        sent_msg = await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup, parse_mode="HTML")
+        context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
 
-    # Обработка ввода диапазона дат (команда "За период")
+    # Обработка ввода диапазона дат (За период)
     if context.user_data.get("awaiting_period"):
         parts = text.split(",")
         if len(parts) != 2:
-            await update.message.reply_text("❗ Неверный формат диапазона. Используйте: YYYY-MM-DD,YYYY-MM-DD", parse_mode="HTML")
+            sent_msg = await update.message.reply_text("❗ Неверный формат диапазона. Используйте: YYYY-MM-DD,YYYY-MM-DD", parse_mode="HTML")
+            context.user_data["last_bot_message_id"] = sent_msg.message_id
             return
         try:
             start_date = datetime.strptime(parts[0].strip(), "%Y-%m-%d").date()
             end_date = datetime.strptime(parts[1].strip(), "%Y-%m-%d").date()
         except ValueError:
-            await update.message.reply_text("❗ Неверный формат даты. Используйте формат YYYY-MM-DD.", parse_mode="HTML")
+            sent_msg = await update.message.reply_text("❗ Неверный формат даты. Используйте формат YYYY-MM-DD.", parse_mode="HTML")
+            context.user_data["last_bot_message_id"] = sent_msg.message_id
             return
         if start_date > end_date:
-            await update.message.reply_text("❗ Начальная дата должна быть раньше конечной.", parse_mode="HTML")
+            sent_msg = await update.message.reply_text("❗ Начальная дата должна быть раньше конечной.", parse_mode="HTML")
+            context.user_data["last_bot_message_id"] = sent_msg.message_id
             return
         total_clicks = total_unique = total_confirmed = 0
         total_income = 0.0
@@ -242,7 +243,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 async with httpx.AsyncClient(timeout=10) as client:
                     response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
             except Exception as e:
-                await update.message.reply_text(f"⚠️ Ошибка запроса: {e}", parse_mode="HTML")
+                sent_msg = await update.message.reply_text(f"⚠️ Ошибка запроса: {e}", parse_mode="HTML")
+                context.user_data["last_bot_message_id"] = sent_msg.message_id
                 return
             if response.status_code == 200:
                 data = response.json()
@@ -256,7 +258,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     days_count += 1
             current_date += timedelta(days=1)
         if days_count == 0:
-            await update.message.reply_text("⚠️ Статистика не найдена за указанный период.", parse_mode="HTML", reply_markup=get_main_menu())
+            sent_msg = await update.message.reply_text("⚠️ Статистика не найдена за указанный период.", parse_mode="HTML", reply_markup=get_main_menu())
+            context.user_data["last_bot_message_id"] = sent_msg.message_id
             context.user_data["awaiting_period"] = False
             return
         period_label = f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
@@ -269,11 +272,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ <b>Подтвержденные:</b> <i>{total_confirmed}</i>\n"
             f"💰 <b>Доход:</b> <i>{total_income:.2f} USD</i>"
         )
-        await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
+        sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
+        context.user_data["last_bot_message_id"] = sent_msg.message_id
         context.user_data["awaiting_period"] = False
         return
 
-    # Основные варианты выбора периода
     if text == "За сегодня":
         period_label = "За сегодня"
         selected_date = now.strftime("%Y-%m-%d")
@@ -296,7 +299,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
+        sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
+        context.user_data["last_bot_message_id"] = sent_msg.message_id
 
     elif text == "За месяц":
         # Рассчитываем статистику за последние 30 дней (с сегодняшнего дня как конечного)
@@ -331,7 +335,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     total_unique += int(stat.get("click_unique_count", 0) or 0)
                     conv = stat.get("conversions", {})
                     total_confirmed += int(conv.get("confirmed", {}).get("count", 0) or 0)
-                    total_income += float(conv.get("confirmed", {}).get("income", 0) or 0)
+                    total_income += float(conv.get("confirmed", {}).get("payout", 0) or 0)
             current_date += timedelta(days=1)
         if total_clicks == 0 and total_unique == 0 and total_confirmed == 0:
             message = "⚠️ Статистика не найдена за указанный период."
@@ -345,17 +349,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ <b>Подтвержденные:</b> <i>{total_confirmed}</i>\n"
                 f"💰 <b>Доход:</b> <i>{total_income:.2f} USD</i>"
             )
-        await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
+        sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
+        context.user_data["last_bot_message_id"] = sent_msg.message_id
 
     elif text == "За период":
         await update.message.reply_text("🗓 Введите диапазон дат в формате YYYY-MM-DD,YYYY-MM-DD:", parse_mode="HTML")
         context.user_data["awaiting_period"] = True
 
     elif text == "Назад":
-        await update.message.reply_text("Возврат в главное меню:", reply_markup=get_main_menu(), parse_mode="HTML")
+        sent_msg = await update.message.reply_text("Возврат в главное меню:", reply_markup=get_main_menu(), parse_mode="HTML")
+        context.user_data["last_bot_message_id"] = sent_msg.message_id
     
     else:
-        await update.message.reply_text("Неизвестная команда. Попробуйте снова.", parse_mode="HTML", reply_markup=get_main_menu())
+        sent_msg = await update.message.reply_text("Неизвестная команда. Попробуйте снова.", parse_mode="HTML", reply_markup=get_main_menu())
+        context.user_data["last_bot_message_id"] = sent_msg.message_id
 
 # ------------------------------
 # Регистрация обработчиков Telegram
@@ -371,4 +378,3 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-
