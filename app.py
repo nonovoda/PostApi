@@ -5,8 +5,7 @@ from datetime import datetime, timedelta
 import httpx
 from fastapi import FastAPI, Request
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import (Application, CommandHandler, MessageHandler, filters,
-                          ContextTypes, ConversationHandler)
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ------------------------------
 # Конфигурация
@@ -33,18 +32,17 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 def get_main_menu():
-    # Главное меню с кнопками: статистика и калькулятор
+    # Главное меню содержит только кнопку статистики
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(text="📊 Получить статистику")],
-            [KeyboardButton(text="🧮 Калькулятор")]
+            [KeyboardButton(text="📊 Получить статистику")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
     )
 
 def get_statistics_menu():
-    # Подменю статистики с эмодзи
+    # Подменю для выбора периода статистики
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(text="📅 За сегодня")],
@@ -55,20 +53,8 @@ def get_statistics_menu():
         one_time_keyboard=True
     )
 
-def get_calculator_menu():
-    # Подменю калькулятора с четырьмя функциями
-    return ReplyKeyboardMarkup(
-        [
-            [KeyboardButton(text="📈 ROI"), KeyboardButton(text="💹 EPC")],
-            [KeyboardButton(text="🛒 СЧ"), KeyboardButton(text="💸 CPA")],
-            [KeyboardButton(text="↩️ Назад")]
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
-
 # ------------------------------
-# Функция форматирования статистики (HTML формат)
+# Функция форматирования статистики согласно API (HTML формат)
 # ------------------------------
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
@@ -179,201 +165,9 @@ async def webhook_handler(request: Request):
     else:
         return await postback_handler(request)
 
-# ==============================
-# КОНВЕРСАЦИИ ДЛЯ РАЗДЕЛА "КАЛЬКУЛЯТОР"
-# ==============================
-
-# --- ROI ---
-ROI_INVEST, ROI_INCOME = range(2)
-
-async def roi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📈 Введите сумму инвестиций:")
-    return ROI_INVEST
-
-async def roi_investment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        investment = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("❗ Неверный формат. Введите сумму инвестиций числом:")
-        return ROI_INVEST
-    context.user_data["investment"] = investment
-    await update.message.reply_text("📈 Введите доход:")
-    return ROI_INCOME
-
-async def roi_income(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        income = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("❗ Неверный формат. Введите доход числом:")
-        return ROI_INCOME
-    investment = context.user_data.get("investment")
-    if not investment:
-        await update.message.reply_text("❗ Ошибка: не задана сумма инвестиций.")
-        return ConversationHandler.END
-    roi = ((income - investment) / investment) * 100 if investment != 0 else 0
-    await update.message.reply_text(f"📈 ROI: {roi:.2f}%")
-    return ConversationHandler.END
-
-async def roi_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📈 ROI-калькулятор отменён.")
-    return ConversationHandler.END
-
-roi_conv_handler = ConversationHandler(
-    entry_points=[MessageHandler(filters.Regex('^📈 ROI$'), roi_command)],
-    states={
-        ROI_INVEST: [MessageHandler(filters.TEXT & ~filters.COMMAND, roi_investment)],
-        ROI_INCOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, roi_income)],
-    },
-    fallbacks=[CommandHandler("cancel", roi_cancel)]
-)
-
-# --- EPC ---
-EPC_INCOME, EPC_CLICKS = range(2)
-
-async def epc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("💹 Введите доход:")
-    return EPC_INCOME
-
-async def epc_income(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        income = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("❗ Неверный формат. Введите доход числом:")
-        return EPC_INCOME
-    context.user_data["income"] = income
-    await update.message.reply_text("💹 Введите количество кликов:")
-    return EPC_CLICKS
-
-async def epc_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        clicks = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("❗ Неверный формат. Введите количество кликов числом:")
-        return EPC_CLICKS
-    income = context.user_data.get("income")
-    if clicks == 0:
-        await update.message.reply_text("❗ Количество кликов не может быть нулевым.")
-        return ConversationHandler.END
-    epc = income / clicks
-    await update.message.reply_text(f"💹 EPC: {epc:.2f}")
-    return ConversationHandler.END
-
-async def epc_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("💹 EPC-калькулятор отменён.")
-    return ConversationHandler.END
-
-epc_conv_handler = ConversationHandler(
-    entry_points=[MessageHandler(filters.Regex('^💹 EPC$'), epc_command)],
-    states={
-        EPC_INCOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, epc_income)],
-        EPC_CLICKS: [MessageHandler(filters.TEXT & ~filters.COMMAND, epc_clicks)],
-    },
-    fallbacks=[CommandHandler("cancel", epc_cancel)]
-)
-
-# --- Средний чек (СЧ) ---
-SC_FIRST, SC_REPEAT, SC_COUNT = range(3)
-
-async def sc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🛒 Введите сумму первого депозита:")
-    return SC_FIRST
-
-async def sc_first(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        first = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("❗ Неверный формат. Введите сумму первого депозита числом:")
-        return SC_FIRST
-    context.user_data["first"] = first
-    await update.message.reply_text("🛒 Введите сумму повторного депозита:")
-    return SC_REPEAT
-
-async def sc_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        repeat = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("❗ Неверный формат. Введите сумму повторного депозита числом:")
-        return SC_REPEAT
-    context.user_data["repeat"] = repeat
-    await update.message.reply_text("🛒 Введите количество первых депозитов:")
-    return SC_COUNT
-
-async def sc_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        count = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("❗ Неверный формат. Введите количество первых депозитов числом:")
-        return SC_COUNT
-    first = context.user_data.get("first")
-    repeat = context.user_data.get("repeat")
-    if count == 0:
-        await update.message.reply_text("❗ Количество первых депозитов не может быть нулевым.")
-        return ConversationHandler.END
-    avg = (first + repeat) / count
-    await update.message.reply_text(f"🛒 Средний чек: {avg:.2f}")
-    return ConversationHandler.END
-
-async def sc_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🛒 Калькулятор среднего чека отменён.")
-    return ConversationHandler.END
-
-sc_conv_handler = ConversationHandler(
-    entry_points=[MessageHandler(filters.Regex('^🛒 СЧ$'), sc_command)],
-    states={
-        SC_FIRST: [MessageHandler(filters.TEXT & ~filters.COMMAND, sc_first)],
-        SC_REPEAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, sc_repeat)],
-        SC_COUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, sc_count)],
-    },
-    fallbacks=[CommandHandler("cancel", sc_cancel)]
-)
-
-# --- CPA ---
-CPA_COST, CPA_CONVERSIONS = range(2)
-
-async def cpa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("💸 Введите расходы:")
-    return CPA_COST
-
-async def cpa_cost(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        cost = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("❗ Неверный формат. Введите расходы числом:")
-        return CPA_COST
-    context.user_data["cost"] = cost
-    await update.message.reply_text("💸 Введите количество конверсий:")
-    return CPA_CONVERSIONS
-
-async def cpa_conversions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        convs = float(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("❗ Неверный формат. Введите количество конверсий числом:")
-        return CPA_CONVERSIONS
-    cost = context.user_data.get("cost")
-    if convs == 0:
-        await update.message.reply_text("❗ Количество конверсий не может быть нулевым.")
-        return ConversationHandler.END
-    cpa = cost / convs
-    await update.message.reply_text(f"💸 CPA: {cpa:.2f}")
-    return ConversationHandler.END
-
-async def cpa_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("💸 CPA-калькулятор отменён.")
-    return ConversationHandler.END
-
-cpa_conv_handler = ConversationHandler(
-    entry_points=[MessageHandler(filters.Regex('^💸 CPA$'), cpa_command)],
-    states={
-        CPA_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, cpa_cost)],
-        CPA_CONVERSIONS: [MessageHandler(filters.TEXT & ~filters.COMMAND, cpa_conversions)],
-    },
-    fallbacks=[CommandHandler("cancel", cpa_cancel)]
-)
-
-# ==============================
-# Обработчики команд Telegram (главное меню и универсальный MessageHandler)
-# ==============================
+# ------------------------------
+# Обработчики команд Telegram
+# ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     main_keyboard = get_main_menu()
     logger.debug("Отправка главного меню")
@@ -385,6 +179,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
+    # Удаляем входящее сообщение пользователя для чистоты диалога
     try:
         await update.message.delete()
     except Exception as e:
@@ -406,25 +201,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sent_msg = await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup, parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
-    if text == "🧮 Калькулятор":
-        reply_markup = get_calculator_menu()
-        sent_msg = await update.message.reply_text("Выберите функцию калькулятора:", reply_markup=reply_markup, parse_mode="HTML")
-        context.user_data["last_bot_message_id"] = sent_msg.message_id
-        return
     if text == "↩️ Назад":
         reply_markup = get_main_menu()
         sent_msg = await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup, parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
 
-    # Обработка подменю статистики с эмодзи
+    # Обработка подменю статистики
     if text == "📅 За сегодня":
-        # Ваш код для обработки статистики за сегодня
         period_label = "За сегодня"
-        # ...
-        # (код запроса статистики за сегодня)
-        # После вычисления статистики отправляем результат
-        sent_msg = await update.message.reply_text("Статистика за сегодня: ...", parse_mode="HTML", reply_markup=get_main_menu())
+        selected_date = datetime.now().strftime("%Y-%m-%d")
+        date_from = f"{selected_date} 00:00"
+        date_to = f"{selected_date} 00:00"
+        params = {
+            "group_by": "day",
+            "timezone": "Europe/Moscow",
+            "date_from": date_from,
+            "date_to": date_to,
+            "currency_code": "USD"
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY": API_KEY, "Content-Type": "application/json"}, params=params)
+            if response.status_code == 200:
+                data = response.json()
+                message = await format_statistics(data, period_label)
+            else:
+                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+        except Exception as e:
+            message = f"⚠️ Ошибка запроса: {e}"
+        sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
     if text == "🗓 За период":
@@ -432,25 +238,136 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["awaiting_period"] = True
         return
     if text == "📆 За месяц":
-        # Ваш код для обработки статистики за месяц
-        period_label = "За месяц"
-        # ...
-        sent_msg = await update.message.reply_text("Статистика за месяц: ...", parse_mode="HTML", reply_markup=get_main_menu())
+        now = datetime.now()
+        end_date = now.date()
+        start_date = end_date - timedelta(days=30)
+        period_label = f"За {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
+        total_clicks = total_unique = total_confirmed = 0
+        total_income = 0.0
+        days_count = 0
+        current_date = start_date
+        while current_date <= end_date:
+            d_str = current_date.strftime("%Y-%m-%d")
+            date_from = f"{d_str} 00:00"
+            date_to = date_from
+            params = {
+                "group_by": "day",
+                "timezone": "Europe/Moscow",
+                "date_from": date_from,
+                "date_to": date_to,
+                "currency_code": "USD"
+            }
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY": API_KEY, "Content-Type": "application/json"}, params=params)
+            except Exception as e:
+                await update.message.reply_text(f"⚠️ Ошибка запроса: {e}", parse_mode="HTML")
+                return
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("data"):
+                    stat = data["data"][0]
+                    total_clicks += int(stat.get("click_count", 0) or 0)
+                    total_unique += int(stat.get("click_unique_count", 0) or 0)
+                    conv = stat.get("conversions", {})
+                    total_confirmed += int(conv.get("confirmed", {}).get("count", 0) or 0)
+                    total_income += float(conv.get("confirmed", {}).get("payout", 0) or 0)
+                    days_count += 1
+            current_date += timedelta(days=1)
+        if days_count == 0:
+            message = "⚠️ Статистика не найдена за указанный период."
+        else:
+            message = (
+                f"<b>📊 Статистика ({period_label})</b>\n\n"
+                f"<b>Клики:</b>\n"
+                f"• <b>Всего:</b> <i>{total_clicks}</i>\n"
+                f"• <b>Уникальные:</b> <i>{total_unique}</i>\n\n"
+                f"<b>Конверсии:</b>\n"
+                f"✅ <b>Подтвержденные:</b> <i>{total_confirmed}</i>\n"
+                f"💰 <b>Доход:</b> <i>{total_income:.2f} USD</i>"
+            )
+        sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
 
-    # Если сообщение не соответствует ни одному из известных вариантов
+    if context.user_data.get("awaiting_period"):
+        parts = text.split(",")
+        if len(parts) != 2:
+            sent_msg = await update.message.reply_text("❗ Неверный формат диапазона. Используйте: YYYY-MM-DD,YYYY-MM-DD", parse_mode="HTML")
+            context.user_data["last_bot_message_id"] = sent_msg.message_id
+            return
+        try:
+            start_date = datetime.strptime(parts[0].strip(), "%Y-%m-%d").date()
+            end_date = datetime.strptime(parts[1].strip(), "%Y-%m-%d").date()
+        except ValueError:
+            sent_msg = await update.message.reply_text("❗ Неверный формат даты. Используйте формат YYYY-MM-DD.", parse_mode="HTML")
+            context.user_data["last_bot_message_id"] = sent_msg.message_id
+            return
+        if start_date > end_date:
+            sent_msg = await update.message.reply_text("❗ Начальная дата должна быть раньше конечной.", parse_mode="HTML")
+            context.user_data["last_bot_message_id"] = sent_msg.message_id
+            return
+        total_clicks = total_unique = total_confirmed = 0
+        total_income = 0.0
+        days_count = 0
+        current_date = start_date
+        while current_date <= end_date:
+            d_str = current_date.strftime("%Y-%m-%d")
+            date_from = f"{d_str} 00:00"
+            date_to = date_from
+            params = {
+                "group_by": "day",
+                "timezone": "Europe/Moscow",
+                "date_from": date_from,
+                "date_to": date_to,
+                "currency_code": "USD"
+            }
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY": API_KEY, "Content-Type": "application/json"}, params=params)
+            except Exception as e:
+                sent_msg = await update.message.reply_text(f"⚠️ Ошибка запроса: {e}", parse_mode="HTML")
+                context.user_data["last_bot_message_id"] = sent_msg.message_id
+                return
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("data"):
+                    stat = data["data"][0]
+                    total_clicks += int(stat.get("click_count", 0) or 0)
+                    total_unique += int(stat.get("click_unique_count", 0) or 0)
+                    conv = stat.get("conversions", {})
+                    total_confirmed += int(conv.get("confirmed", {}).get("count", 0) or 0)
+                    total_income += float(conv.get("confirmed", {}).get("payout", 0) or 0)
+                    days_count += 1
+            current_date += timedelta(days=1)
+        if days_count == 0:
+            sent_msg = await update.message.reply_text("⚠️ Статистика не найдена за указанный период.", parse_mode="HTML", reply_markup=get_main_menu())
+            context.user_data["last_bot_message_id"] = sent_msg.message_id
+            context.user_data["awaiting_period"] = False
+            return
+        period_label = f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
+        message = (
+            f"<b>📊 Статистика ({period_label})</b>\n\n"
+            f"<b>Клики:</b>\n"
+            f"• <b>Всего:</b> <i>{total_clicks}</i>\n"
+            f"• <b>Уникальные:</b> <i>{total_unique}</i>\n\n"
+            f"<b>Конверсии:</b>\n"
+            f"✅ <b>Подтвержденные:</b> <i>{total_confirmed}</i>\n"
+            f"💰 <b>Доход:</b> <i>{total_income:.2f} USD</i>"
+        )
+        sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
+        context.user_data["last_bot_message_id"] = sent_msg.message_id
+        context.user_data["awaiting_period"] = False
+        return
+
+    # Если сообщение не распознано, отправляем ошибку
     sent_msg = await update.message.reply_text("Неизвестная команда. Попробуйте снова.", parse_mode="HTML", reply_markup=get_main_menu())
     context.user_data["last_bot_message_id"] = sent_msg.message_id
 
-# ==============================
+# ------------------------------
 # Регистрация обработчиков Telegram
-# ==============================
+# ------------------------------
 telegram_app.add_handler(CommandHandler("start", start_command))
-telegram_app.add_handler(roi_conv_handler)
-telegram_app.add_handler(epc_conv_handler)
-telegram_app.add_handler(sc_conv_handler)
-telegram_app.add_handler(cpa_conv_handler)
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
 
 # ------------------------------
