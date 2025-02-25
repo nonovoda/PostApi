@@ -161,7 +161,6 @@ async def webhook_handler(request: Request):
         logger.error(f"Ошибка при разборе JSON: {e}")
         return {"error": "Некорректный JSON"}, 400
 
-    # Если присутствует поле update_id – это Telegram-обновление
     if "update_id" in data:
         update = Update.de_json(data, telegram_app.bot)
         if not telegram_app.running:
@@ -174,14 +173,12 @@ async def webhook_handler(request: Request):
             logger.error(f"Ошибка обработки обновления: {e}")
             return {"error": "Ошибка сервера"}, 500
     else:
-        # Иначе обрабатываем как постбек
         return await postback_handler(request)
 
 # ------------------------------
 # Обработчики команд Telegram (асинхронные)
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Главное меню с кнопками
     keyboard = [
         ["Получить статистику"],
         ["📈 Топ офферы"],
@@ -206,7 +203,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now()
     
     if text == "Получить статистику":
-        # Подменю статистики
         period_keyboard = [["За час", "За день"], ["За прошлую неделю"], ["Назад"]]
         reply_markup = ReplyKeyboardMarkup(period_keyboard, resize_keyboard=True, one_time_keyboard=True)
         logger.debug("Отправка подменю для выбора периода статистики")
@@ -215,20 +211,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text in ["За час", "За день", "За прошлую неделю"]:
         period_label = text
         if text == "За час":
-            date_from = (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
-            date_to = now.strftime("%Y-%m-%d %H:%M:%S")
+            date_from = (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M")
+            date_to = now.strftime("%Y-%m-%d %H:%M")
             group_by = "hour"
         elif text == "За день":
-            selected_date = now.strftime("%Y-%m-%d 00:00:00")
+            selected_date = now.strftime("%Y-%m-%d 00:00")
             date_from = selected_date
             date_to = selected_date
             group_by = "day"
         elif text == "За прошлую неделю":
             weekday = now.weekday()
             last_monday = now - timedelta(days=weekday + 7)
-            date_from = last_monday.replace(hour=0, minute=0, second=0).strftime("%Y-%m-%d %H:%M:%S")
+            date_from = last_monday.replace(hour=0, minute=0).strftime("%Y-%m-%d %H:%M")
             last_sunday = last_monday + timedelta(days=6)
-            date_to = last_sunday.replace(hour=23, minute=59, second=59).strftime("%Y-%m-%d %H:%M:%S")
+            date_to = last_sunday.replace(hour=23, minute=59).strftime("%Y-%m-%d %H:%M")
             group_by = "hour"
         
         params = {
@@ -238,10 +234,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "date_to": date_to,
             "currency_code": "USD"
         }
-        # Дополнительное логирование: формирование полного URL запроса
         full_url = str(httpx.URL(f"{BASE_API_URL}/partner/statistic/common").copy_merge_params(params))
         logger.debug(f"Полный URL запроса: {full_url}")
-        
         logger.debug(f"Отправка запроса к {BASE_API_URL}/partner/statistic/common с заголовками: {headers}")
         start_time = datetime.now()
         try:
@@ -323,3 +317,4 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
