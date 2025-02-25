@@ -374,13 +374,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message = "⚠️ Статистика не найдена за указанный период."
         else:
             message = (
-                f"<b>📊 Статистика ({period_label})</b>\n\n"
-                f"<b>Клики:</b>\n"
-                f"• <b>Всего:</b> <i>{total_clicks}</i>\n"
-                f"• <b>Уникальные:</b> <i>{total_unique}</i>\n\n"
-                f"<b>Конверсии (подтвержденные):</b> <i>{total_confirmed}</i>\n"
-                f"<b>Доход:</b> <i>{total_income:.2f} USD</i>"
-            )
+    f"<b>📊 Статистика ({period_label})</b>\n\n"
+    f"<b>🖱 Клики:</b>\n"
+    f"• <b>Всего:</b> <i>{total_clicks}</i>\n"
+    f"• <b>Уникальные:</b> <i>{total_unique}</i>\n\n"
+    f"<b>✅ Конверсии (подтвержденные):</b> <i>{total_confirmed}</i>\n"
+    f"<b>💰 Доход:</b> <i>{total_income:.2f} USD</i>"
+)
+
         await update.message.reply_text(message, parse_mode="HTML")
     
     elif text == "За дату":
