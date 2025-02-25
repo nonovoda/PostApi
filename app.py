@@ -119,7 +119,7 @@ async def webhook_handler(request: Request):
         logger.error(f"Ошибка при разборе JSON: {e}")
         return {"error": "Некорректный JSON"}, 400
 
-    # Если присутствует update_id – это обновление от Telegram
+    # Если присутствует update_id – это Telegram-обновление
     if "update_id" in data:
         update = Update.de_json(data, telegram_app.bot)
         if not telegram_app.running:
@@ -178,10 +178,9 @@ async def postback_handler(request: Request):
     return {"status": "ok"}
 
 # ------------------------------
-# Обработчики команд Telegram
+# Обработчики команд и сообщений Telegram
 # ------------------------------
-@telegram_app.on_message(filters.COMMAND("start"))
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["📊 Статистика за день", "🚀 Тестовая конверсия"],
         ["🔍 Детальная статистика", "📈 Топ офферы"],
@@ -189,10 +188,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
     logger.debug("Отправка основного меню")
-    await update.message.reply_text("Привет! Выберите команду:", reply_markup=reply_markup)
+    update.message.reply_text("Привет! Выберите команду:", reply_markup=reply_markup)
 
-@telegram_app.on_message(filters.TEXT & ~filters.COMMAND)
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
@@ -210,7 +208,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         period_keyboard = [["За час", "За день"], ["За прошлую неделю"], ["Назад"]]
         reply_markup = ReplyKeyboardMarkup(period_keyboard, resize_keyboard=True, one_time_keyboard=True)
         logger.debug("Отправка клавиатуры для выбора периода статистики")
-        await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup)
+        update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup)
     
     elif text in ["За час", "За день", "За прошлую неделю"]:
         period_label = text
@@ -240,12 +238,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         logger.debug(f"Формирование запроса к {BASE_API_URL}/partner/statistic/common с параметрами: {params} и заголовками: {headers}")
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
+            response = httpx.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params, timeout=10)
             logger.debug(f"Получен ответ API: {response.status_code} - {response.text}")
         except httpx.RequestError as exc:
             logger.error(f"Ошибка запроса к API: {exc}")
-            await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
+            update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
             return
 
         if response.status_code == 200:
@@ -258,7 +255,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         
-        await update.message.reply_text(message, parse_mode="Markdown")
+        update.message.reply_text(message, parse_mode="Markdown")
     
     elif text == "📊 Статистика за день":
         selected_date = now.strftime("%Y-%m-%d 00:00:00")
@@ -271,12 +268,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         logger.debug(f"Формирование запроса для 'Статистика за день' с параметрами: {params}")
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
+            response = httpx.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params, timeout=10)
             logger.debug(f"Получен ответ API: {response.status_code} - {response.text}")
         except httpx.RequestError as exc:
             logger.error(f"Ошибка запроса к API: {exc}")
-            await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
+            update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
             return
         
         if response.status_code == 200:
@@ -288,7 +284,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = "⚠️ Не удалось обработать ответ API."
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-        await update.message.reply_text(message, parse_mode="Markdown")
+        update.message.reply_text(message, parse_mode="Markdown")
     
     elif text == "🚀 Тестовая конверсия":
         date_from = (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
@@ -301,12 +297,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         logger.debug(f"Формирование запроса к {BASE_API_URL}/partner/statistic/conversions с параметрами: {params} и заголовками: {headers}")
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{BASE_API_URL}/partner/statistic/conversions", headers=headers, params=params)
+            response = httpx.get(f"{BASE_API_URL}/partner/statistic/conversions", headers=headers, params=params, timeout=10)
             logger.debug(f"Получен ответ API: {response.status_code} - {response.text}")
         except httpx.RequestError as exc:
             logger.error(f"Ошибка запроса к API: {exc}")
-            await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
+            update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
             return
         
         if response.status_code == 200:
@@ -319,7 +314,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         
-        await update.message.reply_text(message, parse_mode="Markdown")
+        update.message.reply_text(message, parse_mode="Markdown")
     
     elif text == "🔍 Детальная статистика":
         selected_date = now.strftime("%Y-%m-%d 00:00:00")
@@ -332,12 +327,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         logger.debug(f"Формирование запроса для детальной статистики с параметрами: {params}")
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
+            response = httpx.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params, timeout=10)
             logger.debug(f"Получен ответ API: {response.status_code} - {response.text}")
         except httpx.RequestError as exc:
             logger.error(f"Ошибка запроса к API: {exc}")
-            await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
+            update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
             return
         
         if response.status_code == 200:
@@ -349,7 +343,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = "⚠️ Не удалось обработать ответ API."
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-        await update.message.reply_text(message, parse_mode="Markdown")
+        update.message.reply_text(message, parse_mode="Markdown")
     
     elif text == "📈 Топ офферы":
         params = {
@@ -359,12 +353,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         logger.debug(f"Формирование запроса к {BASE_API_URL}/partner/offers с параметрами: {params}")
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{BASE_API_URL}/partner/offers", headers=headers, params=params)
+            response = httpx.get(f"{BASE_API_URL}/partner/offers", headers=headers, params=params, timeout=10)
             logger.debug(f"Получен ответ API: {response.status_code} - {response.text}")
         except httpx.RequestError as exc:
             logger.error(f"Ошибка запроса к API: {exc}")
-            await update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
+            update.message.reply_text(f"⚠️ Ошибка запроса: {exc}")
             return
         
         if response.status_code == 200:
@@ -376,10 +369,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = "⚠️ Не удалось обработать ответ API."
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-        await update.message.reply_text(message, parse_mode="Markdown")
+        update.message.reply_text(message, parse_mode="Markdown")
     
     elif text == "🔄 Обновить данные":
-        await update.message.reply_text("🔄 Данные обновлены!")
+        update.message.reply_text("🔄 Данные обновлены!")
     
     elif text == "Назад":
         main_keyboard = [
@@ -389,13 +382,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
         logger.debug("Возврат в главное меню")
-        await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup)
+        update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup)
     
     else:
-        await update.message.reply_text("Неизвестная команда. Попробуйте снова.")
+        update.message.reply_text("Неизвестная команда. Попробуйте снова.")
 
 # Регистрация обработчиков Telegram
-telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(CommandHandler("start", start_command=start_command))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
 
 # ------------------------------
@@ -406,4 +399,3 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-
