@@ -31,7 +31,7 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 # ------------------------------
-# Функция форматирования статистики
+# Функция форматирования статистики согласно API
 # ------------------------------
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
@@ -42,26 +42,28 @@ async def format_statistics(response_json, period_label: str) -> str:
     date_info = group_fields[0].get("label") if group_fields else "Не указано"
     clicks = stat.get("click_count", "N/A")
     unique_clicks = stat.get("click_unique_count", "N/A")
+    reg = stat.get("conversions", {}).get("registration", {})
+    dep = stat.get("conversions", {}).get("deposit", {})
     confirmed = stat.get("conversions", {}).get("confirmed", {})
-    # Новое: выводим только подтверждённые конверсии и доход
-    confirmed_count = confirmed.get("count", "N/A")
-    income = confirmed.get("income", "N/A")
     message = (
         f"**📊 Статистика ({period_label})**\n\n"
         f"**Дата:** _{date_info}_\n\n"
         f"**Клики:**\n"
         f"• **Всего:** _{clicks}_\n"
         f"• **Уникальные:** _{unique_clicks}_\n\n"
-        f"**Конверсии (подтверждённые):** _{confirmed_count}_\n"
-        f"**Доход:** _{income} USD_"
+        f"**Конверсии:**\n"
+        f"• **Регистрация:** _{reg.get('count', 'N/A')}_ (💰 _{reg.get('payout', 'N/A')} USD_)\n"
+        f"• **Депозиты:** _{dep.get('count', 'N/A')}_ (💰 _{dep.get('payout', 'N/A')} USD_)\n"
+        f"**Доход:** _{confirmed.get('income', 'N/A')} USD_"
     )
     return message
 
 # ------------------------------
-# Функция форматирования офферов (оставляем как в рабочей версии)
+# Функция форматирования офферов (рабочая версия)
 # ------------------------------
 async def format_offers(response_json) -> str:
     offers = response_json.get("data", [])
+    meta = response_json.get("meta", {})
     if not offers:
         return "⚠️ *Офферы не найдены.*"
     message = "**📈 Топ офферы:**\n\n"
@@ -81,7 +83,7 @@ async def init_telegram_app():
     logger.debug("Telegram-бот успешно запущен!")
 
 # ------------------------------
-# Обработка постбеков от ПП (оставляем как в рабочей версии)
+# Обработка постбеков от ПП (рабочая версия)
 # ------------------------------
 async def postback_handler(request: Request):
     try:
@@ -179,7 +181,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     now = datetime.now()
 
-    # Первоначально обрабатываем запрос на получение статистики
     if text == "Получить статистику":
         period_keyboard = [
             [KeyboardButton(text="За час"), KeyboardButton(text="За день")],
@@ -192,7 +193,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup)
         return
 
-    # Обработка ввода даты (для команды "За дату")
+    # Обработка ввода даты (команда "За дату")
     if context.user_data.get("awaiting_date"):
         try:
             date_obj = datetime.strptime(text, "%Y-%m-%d").date()
@@ -224,7 +225,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["awaiting_date"] = False
         return
 
-    # Обработка ввода диапазона дат (для команды "За период")
+    # Обработка ввода диапазона дат (команда "За период")
     if context.user_data.get("awaiting_period"):
         parts = text.split(",")
         if len(parts) != 2:
@@ -268,9 +269,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     stat = data["data"][0]
                     total_clicks += int(stat.get("click_count", 0) or 0)
                     total_unique += int(stat.get("click_unique_count", 0) or 0)
-                    confirmed = stat.get("conversions", {}).get("confirmed", {})
-                    total_confirmed += int(confirmed.get("count", 0) or 0)
-                    total_income += float(confirmed.get("income", 0) or 0)
+                    conv = stat.get("conversions", {})
+                    total_confirmed += int(conv.get("confirmed", {}).get("count", 0) or 0)
+                    total_income += float(conv.get("confirmed", {}).get("income", 0) or 0)
                     days_count += 1
             current_date += timedelta(days=1)
         if days_count == 0:
