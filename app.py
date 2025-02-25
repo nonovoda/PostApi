@@ -48,10 +48,16 @@ app = FastAPI()
 # Меню бота (Reply-кнопки)
 # ------------------------------
 def get_main_menu():
-    # Добавили кнопку "ЛК ПП", и "📊 Получить статистику"
+    """
+    # [NEW BACK BUTTON IN MAIN MENU]
+    Добавляем кнопку «Назад» в основное меню (если нужно),
+    чтобы пользователь мог вернуться к каким-то предыдущим экранам.
+    По желанию можно переименовать «⬅️ Назад» или «↩️ Назад».
+    """
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(text="📊 Получить статистику"), KeyboardButton(text="ЛК ПП")]
+            [KeyboardButton(text="📊 Получить статистику"), KeyboardButton(text="ЛК ПП")],
+            [KeyboardButton(text="⬅️ Назад")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -241,8 +247,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
 
-    # Кнопка "Назад"
-    if text == "↩️ Назад":
+    # Кнопка "Назад" в главном меню (и "↩️ Назад" в подменю):
+    if text in ["↩️ Назад", "⬅️ Назад"]:
         reply_markup = get_main_menu()
         sent_msg = await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup, parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
@@ -276,7 +282,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
 
-        # [NEW] Добавляем inline-кнопку "Детализация", передаём date_from/date_to
+        # Добавляем inline-кнопку "Детализация", передаём date_from/date_to
         inline_kb = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton(
@@ -359,9 +365,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💰 <b>Доход:</b> <i>{total_income:.2f} USD</i>"
             )
 
-        # [NEW] Для удобства тоже прикрепим инлайн-кнопку «Детализация» за весь период
-        # но т.к. у нас "За месяц" делается покадрово по дням, передадим full date_from/date_to
-        # например, midnight start_date и midnight end_date
+        # Для удобства тоже прикрепим инлайн-кнопку «Детализация» за весь месяц
         date_from = f"{start_date.strftime('%Y-%m-%d')} 00:00"
         date_to = f"{end_date.strftime('%Y-%m-%d')} 23:59"
         inline_kb = InlineKeyboardMarkup([
@@ -461,7 +465,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💰 <b>Доход:</b> <i>{total_income:.2f} USD</i>"
         )
 
-        # [NEW] Inline-кнопка "Детализация" за этот период
         date_from = f"{start_date.strftime('%Y-%m-%d')} 00:00"
         date_to = f"{end_date.strftime('%Y-%m-%d')} 23:59"
         inline_kb = InlineKeyboardMarkup([
@@ -497,21 +500,27 @@ async def inline_button_handler(update: Update, context: ContextTypes.DEFAULT_TY
         date_from = parts[1]
         date_to = parts[2]
 
-        # Делаем запрос конверсий по goal_keys REG, FTD, RDS, WD
-        params = {
-            "timezone": "Europe/Moscow",
-            "date_from": date_from,
-            "date_to": date_to,
-            # Можно добавить "statuses": [1] если нужны только confirmed и т.п.
-            "goal_keys": ["REG", "FTD", "RDS", "WD"],
-            "per_page": 50
-        }
+        # [FIX for goal_keys]
+        # Alanbase требует массив goal_keys в виде goal_keys[]=REG, goal_keys[]=FTD ...
+        # Формируем список кортежей, чтобы httpx делал ?goal_keys[]=REG&goal_keys[]=FTD...
+        base_params = [
+            ("timezone", "Europe/Moscow"),
+            ("date_from", date_from),
+            ("date_to", date_to),
+            ("per_page", "50"),
+            # Можно добавить "statuses" и др. при необходимости
+        ]
+        # goals = ["REG", "FTD", "RDS", "WD"] – например
+        goals = ["REG", "FTD", "RDS", "WD"]
+        for g in goals:
+            base_params.append(("goal_keys[]", g))
+
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(
                     f"{BASE_API_URL}/partner/statistic/conversions",
                     headers={"API-KEY": API_KEY, "Content-Type": "application/json"},
-                    params=params
+                    params=base_params
                 )
             if resp.status_code == 200:
                 data = resp.json()
@@ -520,10 +529,9 @@ async def inline_button_handler(update: Update, context: ContextTypes.DEFAULT_TY
                     details_text = "Детализация: нет конверсий (REG, FTD, RDS, WD) за указанный период."
                 else:
                     details_text = "<b>Детализированные конверсии</b>\n\n"
-                    # Выведем первые 20
+                    # Выведем первые 20, чтобы сообщение не было слишком длинным
                     for c in conv_list[:20]:
                         cid = c.get("conversion_id")
-                        # goal может содержать поле key
                         goal_key = c.get("goal", {}).get("key", "N/A")
                         status = c.get("status")
                         payout = c.get("payout")
@@ -552,8 +560,6 @@ async def inline_button_handler(update: Update, context: ContextTypes.DEFAULT_TY
         date_from = parts[1]
         date_to = parts[2]
 
-        # Допустим, у нас group_by="day"
-        # Восстанавливаем "общую" статистику
         period_label = "Общий период"
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -594,7 +600,7 @@ async def inline_button_handler(update: Update, context: ContextTypes.DEFAULT_TY
 # ------------------------------
 telegram_app.add_handler(CommandHandler("start", start_command))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
-telegram_app.add_handler(CallbackQueryHandler(inline_button_handler))  # [NEW]
+telegram_app.add_handler(CallbackQueryHandler(inline_button_handler))
 
 # ------------------------------
 # Основной запуск приложения
