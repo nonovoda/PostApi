@@ -6,6 +6,7 @@ import httpx
 from fastapi import FastAPI, Request
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.helpers import escape_markdown
 
 # ------------------------------
 # Конфигурация
@@ -13,7 +14,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
-# Обновлённый URL от поддержки Alanbase:
+# Новый API URL от поддержки Alanbase:
 BASE_API_URL = "https://4rabet.api.alanbase.com/v1"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-bot.onrender.com/webhook")
 PORT = int(os.environ.get("PORT", 8000))
@@ -36,24 +37,27 @@ app = FastAPI()
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
     meta = response_json.get("meta", {})
-    
+    # Если meta пришёл как список, преобразуем в пустой словарь
+    if isinstance(meta, list):
+        meta = {}
+
     if not data:
         return "⚠️ *Статистика не найдена.*"
-    
+
     stat = data[0]
     group_fields = stat.get("group_fields", [])
     date_info = group_fields[0].get("label") if group_fields else "Не указано"
-    
+
     clicks = stat.get("click_count", "N/A")
     unique_clicks = stat.get("click_unique_count", "N/A")
-    
+
     conversions = stat.get("conversions", {})
     confirmed = conversions.get("confirmed", {})
     pending = conversions.get("pending", {})
     hold = conversions.get("hold", {})
     rejected = conversions.get("rejected", {})
     total = conversions.get("total", {})
-    
+
     message = (
         f"**📊 Статистика ({period_label})**\n\n"
         f"**Дата:** _{date_info}_\n\n"
@@ -79,22 +83,6 @@ async def format_offers(response_json) -> str:
     for offer in offers:
         message += f"• **ID:** {offer.get('id')} | **Название:** {offer.get('name')}\n"
     message += f"\n**Страница:** {meta.get('page', 'N/A')} / **Всего офферов:** {meta.get('total_count', 'N/A')}"
-    return message
-
-async def format_conversion(response_json) -> str:
-    data = response_json.get("data", [])
-    if not data:
-        return "⚠️ *Конверсии не найдены.*"
-    conv = data[0]
-    message = (
-        "**🚀 Тестовая конверсия:**\n\n"
-        f"**ID:** {conv.get('conversion_id', 'N/A')}\n"
-        f"**Статус:** {conv.get('status', 'N/A')}\n"
-        f"**Причина отклонения:** {conv.get('decline_reason', 'N/A')}\n"
-        f"**Дата конверсии:** {conv.get('conversion_datetime', 'N/A')}\n"
-        f"**Модель оплаты:** {conv.get('payment_model', 'N/A')}\n"
-        f"**Платёж:** {conv.get('payout', 'N/A')} {conv.get('payout_currency', 'USD')}\n"
-    )
     return message
 
 # ------------------------------
@@ -142,7 +130,9 @@ async def postback_handler(request: Request):
     )
 
     try:
-        await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="Markdown")
+        # Экранируем markdown-сущности, чтобы избежать ошибок парсинга
+        escaped_message = escape_markdown(message, version=2)
+        await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=escaped_message, parse_mode="MarkdownV2")
         logger.debug("Постбек успешно отправлен в Telegram")
     except Exception as e:
         logger.error(f"Ошибка отправки постбека в Telegram: {e}")
@@ -181,15 +171,18 @@ async def webhook_handler(request: Request):
 # Обработчики команд Telegram (асинхронные)
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
+    main_keyboard = [
         [KeyboardButton(text="Получить статистику")],
         [KeyboardButton(text="📈 Топ офферы")],
         [KeyboardButton(text="🔄 Обновить данные")],
         [KeyboardButton(text="Тестовый запрос")]
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
     logger.debug("Отправка основного меню")
-    await update.message.reply_text("Привет! Выберите команду:", reply_markup=reply_markup)
+    text = "Привет! Выберите команду:"
+    # Экранируем текст перед отправкой
+    escaped_text = escape_markdown(text, version=2)
+    await update.message.reply_text(escaped_text, reply_markup=reply_markup, parse_mode="MarkdownV2")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
@@ -204,8 +197,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "User-Agent": "TelegramBot/1.0 (compatible; Alanbase API integration)"
     }
     now = datetime.now()
-    
+
     if text == "Тестовый запрос":
+        # Пустые параметры тестового запроса
         params = {
             "timezone": "",
             "date_from": "",
@@ -243,7 +237,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 data = response.json()
                 message = f"✅ Тестовый запрос выполнен успешно:\n```\n{data}\n```"
-                await update.message.reply_text(message, parse_mode="Markdown")
+                escaped_message = escape_markdown(message, version=2)
+                await update.message.reply_text(escaped_message, parse_mode="MarkdownV2")
             except Exception as e:
                 logger.error(f"Ошибка обработки JSON в тестовом запросе: {e}")
                 await update.message.reply_text("⚠️ Не удалось обработать ответ API тестового запроса.")
@@ -307,7 +302,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         
-        await update.message.reply_text(message, parse_mode="Markdown")
+        # Экранируем сообщение перед отправкой
+        escaped_message = escape_markdown(message, version=2)
+        await update.message.reply_text(escaped_message, parse_mode="MarkdownV2")
     
     elif text == "📈 Топ офферы":
         params = {
@@ -334,7 +331,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = "⚠️ Не удалось обработать ответ API."
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-        await update.message.reply_text(message, parse_mode="Markdown")
+        escaped_message = escape_markdown(message, version=2)
+        await update.message.reply_text(escaped_message, parse_mode="MarkdownV2")
     
     elif text == "🔄 Обновить данные":
         await update.message.reply_text("🔄 Данные обновлены!")
