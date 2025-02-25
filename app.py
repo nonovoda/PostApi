@@ -388,7 +388,7 @@ def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.message.reply_text("Неизвестная команда. Попробуйте снова.")
 
 # Регистрация обработчиков Telegram
-telegram_app.add_handler(CommandHandler("start", start_command=start_command))
+telegram_app.add_handler(CommandHandler("start", start_command))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
 
 # ------------------------------
