@@ -22,7 +22,6 @@ logging.basicConfig(
     level=logging.DEBUG
 )
 logger = logging.getLogger(__name__)
-
 logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API_KEY != 'ВАШ_API_КЛЮЧ' else API_KEY}, TELEGRAM_TOKEN = {TELEGRAM_TOKEN[:4]+'****' if TELEGRAM_TOKEN != 'ВАШ_ТОКЕН' else TELEGRAM_TOKEN}, TELEGRAM_CHAT_ID = {TELEGRAM_CHAT_ID}")
 
 # ------------------------------
@@ -85,7 +84,6 @@ def format_conversion(response_json) -> str:
     data = response_json.get("data", [])
     if not data:
         return "⚠️ Конверсии не найдены."
-    # Для примера отформатируем первую конверсию
     conv = data[0]
     message = (
         f"🚀 *Тестовая конверсия:*\n\n"
@@ -99,6 +97,66 @@ def format_conversion(response_json) -> str:
     return message
 
 # ------------------------------
+# Обработка входящих постбеков от ПП
+# ------------------------------
+@app.post("/postback")
+async def postback_handler(request: Request):
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.error(f"Ошибка при разборе JSON постбека: {e}")
+        return {"error": "Некорректный JSON"}, 400
+
+    logger.debug(f"Получен постбек: {data}")
+
+    # Извлекаем необходимые поля
+    offer_id = data.get("offer_id", "N/A")
+    sub_id2 = data.get("sub_id2", "N/A")
+    goal = data.get("goal", "N/A")
+    revenue = data.get("revenue", "N/A")
+    currency = data.get("currency", "USD")
+    status = data.get("status", "N/A")
+    sub_id4 = data.get("sub_id4", "N/A")
+    sub_id5 = data.get("sub_id5", "N/A")
+    conversion_date = data.get("conversion_date", "N/A")
+
+    message = (
+        "🔔 *Новая конверсия!*\n\n"
+        f"📌 Оффер: {offer_id}\n"
+        f"🛠 Подход: {sub_id2}\n"
+        f"📊 Тип конверсии: {goal}\n"
+        f"💰 Выплата: {revenue} {currency}\n"
+        f"⚙️ Статус конверсии: {status}\n"
+        f"🎯 Кампания: {sub_id4}\n"
+        f"🎯 Адсет: {sub_id5}\n"
+        f"⏰ Время конверсии: {conversion_date}"
+    )
+
+    try:
+        await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="Markdown")
+        logger.debug("Постбек успешно отправлен в Telegram")
+    except Exception as e:
+        logger.error(f"Ошибка отправки постбека в Telegram: {e}")
+        return {"error": "Не удалось отправить сообщение"}, 500
+
+    return {"status": "ok"}
+
+# ------------------------------
+# Эндпоинт для получения готовых ссылок с макросами
+# ------------------------------
+@app.get("/postback_links")
+async def postback_links():
+    link1 = ("https://postapi-x4hf.onrender.com?"
+             "offer_id={offer_id}&sub_id2={sub_id2}&goal={goal}&"
+             "revenue={revenue}&currency={currency}&status={status}&"
+             "sub_id4={sub_id4}&sub_id5={sub_id5}&conversion_date={conversion_date}")
+    link2 = ("https://apiposts-production-1dea.up.railway.app?"
+             "offer_id={offer_id}&sub_id2={sub_id2}&goal={goal}&"
+             "revenue={revenue}&currency={currency}&status={status}&"
+             "sub_id4={sub_id4}&sub_id5={sub_id5}&conversion_date={conversion_date}")
+    return {"link1": link1, "link2": link2}
+
+# ------------------------------
 # Инициализация Telegram-бота
 # ------------------------------
 application = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -110,7 +168,7 @@ async def init_application():
     logger.debug("Бот успешно запущен!")
 
 # ------------------------------
-# FastAPI сервер для обработки вебхуков
+# FastAPI сервер для обработки вебхуков (Telegram и постбеки)
 # ------------------------------
 app = FastAPI()
 
@@ -124,18 +182,22 @@ async def telegram_webhook(request: Request):
         logger.error(f"Ошибка при разборе JSON: {e}")
         return {"error": "Некорректный JSON"}, 400
 
-    update = Update.de_json(data, application.bot)
-
-    if not application.running:
-        logger.warning("Telegram Application не запущено, выполняется инициализация...")
-        await init_application()
-
-    try:
-        await application.process_update(update)
-        return {"status": "ok"}
-    except Exception as e:
-        logger.error(f"Ошибка обработки обновления: {e}")
-        return {"error": "Ошибка сервера"}, 500
+    # Предполагаем, что если в JSON есть поле "update_id" – это запрос от Telegram,
+    # иначе, если, например, присутствует "offer_id", это постбек от ПП.
+    if "update_id" in data:
+        update = Update.de_json(data, application.bot)
+        if not application.running:
+            logger.warning("Telegram Application не запущено, выполняется инициализация...")
+            await init_application()
+        try:
+            await application.process_update(update)
+            return {"status": "ok"}
+        except Exception as e:
+            logger.error(f"Ошибка обработки обновления: {e}")
+            return {"error": "Ошибка сервера"}, 500
+    else:
+        # Если это не Telegram-обновление, то пробуем обработать как постбек.
+        return await postback_handler(request)
 
 # ------------------------------
 # Обработчики команд и сообщений Telegram
@@ -157,7 +219,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     logger.debug(f"Получено сообщение: {text}")
 
-    # Заголовки для всех запросов
     headers = {
         "API-KEY": API_KEY,
         "Content-Type": "application/json",
@@ -251,7 +312,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message, parse_mode="Markdown")
     
     elif text == "🚀 Тестовая конверсия":
-        # Для тестовой конверсии используем endpoint /partner/statistic/conversions
         date_from = (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
         date_to = now.strftime("%Y-%m-%d %H:%M:%S")
         params = {
@@ -259,7 +319,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "date_from": date_from,
             "date_to": date_to,
             "currency_code": "USD"
-            # Можно добавить дополнительные параметры, если необходимо
         }
         logger.debug(f"Формирование запроса к {BASE_API_URL}/partner/statistic/conversions с параметрами: {params} и заголовками: {headers}")
         try:
@@ -284,7 +343,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message, parse_mode="Markdown")
     
     elif text == "🔍 Детальная статистика":
-        # Для детальной статистики используем группировку по офферам за сегодняшний день
         selected_date = now.strftime("%Y-%m-%d 00:00:00")
         params = {
             "group_by": "offer",
@@ -293,7 +351,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "date_to": selected_date,
             "currency_code": "USD"
         }
-        logger.debug(f"Формирование запроса к {BASE_API_URL}/partner/statistic/common для детальной статистики с параметрами: {params}")
+        logger.debug(f"Формирование запроса для детальной статистики с параметрами: {params}")
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
@@ -315,7 +373,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message, parse_mode="Markdown")
     
     elif text == "📈 Топ офферы":
-        # Запрос списка офферов, например, только доступных, первые 10
         params = {
             "is_avaliable": 1,
             "page": 1,
@@ -358,7 +415,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Неизвестная команда. Попробуйте снова.")
 
-# Регистрация обработчиков команд и сообщений
+# Регистрация обработчиков команд и сообщений Telegram
 application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
 
