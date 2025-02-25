@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 import httpx
 from fastapi import FastAPI, Request
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ------------------------------
@@ -13,7 +13,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
-# Обновлённый базовый URL согласно поддержке Alanbase:
+# Обновлённый URL от поддержки Alanbase:
 BASE_API_URL = "https://4rabet.api.alanbase.com/v1"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-bot.onrender.com/webhook")
 PORT = int(os.environ.get("PORT", 8000))
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API_KEY != 'ВАШ_API_КЛЮЧ' else API_KEY}, TELEGRAM_TOKEN = {TELEGRAM_TOKEN[:4]+'****' if TELEGRAM_TOKEN != 'ВАШ_ТОКЕН' else TELEGRAM_TOKEN}, TELEGRAM_CHAT_ID = {TELEGRAM_CHAT_ID}")
 
 # ------------------------------
-# Создание единственного экземпляра FastAPI
+# Создание экземпляра FastAPI
 # ------------------------------
 app = FastAPI()
 
@@ -38,7 +38,7 @@ async def format_statistics(response_json, period_label: str) -> str:
     meta = response_json.get("meta", {})
     
     if not data:
-        return "⚠️ Статистика не найдена."
+        return "⚠️ *Статистика не найдена.*"
     
     stat = data[0]
     group_fields = stat.get("group_fields", [])
@@ -55,17 +55,18 @@ async def format_statistics(response_json, period_label: str) -> str:
     total = conversions.get("total", {})
     
     message = (
-        f"📊 *Статистика ({period_label})* 📊\n\n"
-        f"🗓 Дата: *{date_info}*\n\n"
-        f"🖱️ Клики: *{clicks}*\n"
-        f"👥 Уникальные клики: *{unique_clicks}*\n\n"
-        f"🔄 *Конверсии:*\n"
-        f"✅ Подтвержденные: *{confirmed.get('count', 'N/A')}* (💰 {confirmed.get('payout', 'N/A')} USD)\n"
-        f"⏳ Ожидающие: *{pending.get('count', 'N/A')}* (💰 {pending.get('payout', 'N/A')} USD)\n"
-        f"🔒 В удержании: *{hold.get('count', 'N/A')}* (💰 {hold.get('payout', 'N/A')} USD)\n"
-        f"❌ Отклоненные: *{rejected.get('count', 'N/A')}* (💰 {rejected.get('payout', 'N/A')} USD)\n"
-        f"💰 Всего: *{total.get('count', 'N/A')}* (Сумма: {total.get('payout', 'N/A')} USD)\n\n"
-        f"ℹ️ Страница: *{meta.get('page', 'N/A')}* / Последняя: *{meta.get('last_page', 'N/A')}* | Всего записей: *{meta.get('total_count', 'N/A')}*"
+        f"**📊 Статистика ({period_label})**\n\n"
+        f"**Дата:** _{date_info}_\n\n"
+        f"**Клики:**\n"
+        f"• Всего: *{clicks}*\n"
+        f"• Уникальные: *{unique_clicks}*\n\n"
+        f"**Конверсии:**\n"
+        f"• Подтвержденные: *{confirmed.get('count', 'N/A')}* (💰 *{confirmed.get('payout', 'N/A')} USD*)\n"
+        f"• Ожидающие: *{pending.get('count', 'N/A')}* (💰 *{pending.get('payout', 'N/A')} USD*)\n"
+        f"• В удержании: *{hold.get('count', 'N/A')}* (💰 *{hold.get('payout', 'N/A')} USD*)\n"
+        f"• Отклоненные: *{rejected.get('count', 'N/A')}* (💰 *{rejected.get('payout', 'N/A')} USD*)\n"
+        f"• Всего: *{total.get('count', 'N/A')}* (💰 *{total.get('payout', 'N/A')} USD*)\n\n"
+        f"**Страница:** *{meta.get('page', 'N/A')}* / **Последняя:** *{meta.get('last_page', 'N/A')}* | **Всего записей:** *{meta.get('total_count', 'N/A')}*"
     )
     return message
 
@@ -73,26 +74,26 @@ async def format_offers(response_json) -> str:
     offers = response_json.get("data", [])
     meta = response_json.get("meta", {})
     if not offers:
-        return "⚠️ Офферы не найдены."
-    message = "📈 *Топ офферы:*\n\n"
+        return "⚠️ *Офферы не найдены.*"
+    message = "**📈 Топ офферы:**\n\n"
     for offer in offers:
-        message += f"• *ID:* {offer.get('id')} | *Название:* {offer.get('name')}\n"
-    message += f"\nℹ️ Страница: {meta.get('page', 'N/A')} / Всего: {meta.get('total_count', 'N/A')}"
+        message += f"• **ID:** {offer.get('id')} | **Название:** {offer.get('name')}\n"
+    message += f"\n**Страница:** {meta.get('page', 'N/A')} / **Всего офферов:** {meta.get('total_count', 'N/A')}"
     return message
 
 async def format_conversion(response_json) -> str:
     data = response_json.get("data", [])
     if not data:
-        return "⚠️ Конверсии не найдены."
+        return "⚠️ *Конверсии не найдены.*"
     conv = data[0]
     message = (
-        f"🚀 *Тестовая конверсия:*\n\n"
-        f"ID: {conv.get('conversion_id', 'N/A')}\n"
-        f"Статус: {conv.get('status', 'N/A')}\n"
-        f"Причина отклонения: {conv.get('decline_reason', 'N/A')}\n"
-        f"Дата конверсии: {conv.get('conversion_datetime', 'N/A')}\n"
-        f"Модель оплаты: {conv.get('payment_model', 'N/A')}\n"
-        f"Платёж: {conv.get('payout', 'N/A')} {conv.get('payout_currency', 'USD')}\n"
+        "**🚀 Тестовая конверсия:**\n\n"
+        f"**ID:** {conv.get('conversion_id', 'N/A')}\n"
+        f"**Статус:** {conv.get('status', 'N/A')}\n"
+        f"**Причина отклонения:** {conv.get('decline_reason', 'N/A')}\n"
+        f"**Дата конверсии:** {conv.get('conversion_datetime', 'N/A')}\n"
+        f"**Модель оплаты:** {conv.get('payment_model', 'N/A')}\n"
+        f"**Платёж:** {conv.get('payout', 'N/A')} {conv.get('payout_currency', 'USD')}\n"
     )
     return message
 
@@ -129,15 +130,15 @@ async def postback_handler(request: Request):
     conversion_date = data.get("conversion_date", "N/A")
 
     message = (
-        "🔔 *Новая конверсия!*\n\n"
-        f"📌 Оффер: {offer_id}\n"
-        f"🛠 Подход: {sub_id2}\n"
-        f"📊 Тип конверсии: {goal}\n"
-        f"💰 Выплата: {revenue} {currency}\n"
-        f"⚙️ Статус конверсии: {status}\n"
-        f"🎯 Кампания: {sub_id4}\n"
-        f"🎯 Адсет: {sub_id5}\n"
-        f"⏰ Время конверсии: {conversion_date}"
+        "🔔 **Новая конверсия!**\n\n"
+        f"**📌 Оффер:** {offer_id}\n"
+        f"**🛠 Подход:** {sub_id2}\n"
+        f"**📊 Тип конверсии:** {goal}\n"
+        f"**💰 Выплата:** {revenue} {currency}\n"
+        f"**⚙️ Статус конверсии:** {status}\n"
+        f"**🎯 Кампания:** {sub_id4}\n"
+        f"**🎯 Адсет:** {sub_id5}\n"
+        f"**⏰ Время конверсии:** {conversion_date}"
     )
 
     try:
@@ -181,10 +182,10 @@ async def webhook_handler(request: Request):
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        ["Получить статистику"],
-        ["📈 Топ офферы"],
-        ["🔄 Обновить данные"],
-        ["Тестовый запрос"]
+        [KeyboardButton(text="Получить статистику")],
+        [KeyboardButton(text="📈 Топ офферы")],
+        [KeyboardButton(text="🔄 Обновить данные")],
+        [KeyboardButton(text="Тестовый запрос")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
     logger.debug("Отправка основного меню")
@@ -241,14 +242,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if response.status_code == 200:
             try:
                 data = response.json()
-                message = f"✅ Тестовый запрос выполнен успешно:\n{data}"
+                message = f"✅ Тестовый запрос выполнен успешно:\n```\n{data}\n```"
+                await update.message.reply_text(message, parse_mode="Markdown")
             except Exception as e:
                 logger.error(f"Ошибка обработки JSON в тестовом запросе: {e}")
-                message = "⚠️ Не удалось обработать ответ API тестового запроса."
+                await update.message.reply_text("⚠️ Не удалось обработать ответ API тестового запроса.")
         else:
             message = f"⚠️ Тестовый запрос: Ошибка API {response.status_code}: {response.text}"
-        
-        await update.message.reply_text(message, parse_mode="Markdown")
+            await update.message.reply_text(message)
     
     elif text == "Получить статистику":
         period_keyboard = [["За час", "За день"], ["За прошлую неделю"], ["Назад"]]
@@ -340,10 +341,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif text == "Назад":
         main_keyboard = [
-            ["Получить статистику"],
-            ["📈 Топ офферы"],
-            ["🔄 Обновить данные"],
-            ["Тестовый запрос"]
+            [KeyboardButton(text="Получить статистику")],
+            [KeyboardButton(text="📈 Топ офферы")],
+            [KeyboardButton(text="🔄 Обновить данные")],
+            [KeyboardButton(text="Тестовый запрос")]
         ]
         reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
         logger.debug("Возврат в главное меню")
