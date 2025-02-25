@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 import httpx
 from fastapi import FastAPI, Request
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (Application, CommandHandler, MessageHandler, filters,
+                          ContextTypes, ConversationHandler)
 
 # ------------------------------
 # Конфигурация
@@ -171,10 +172,59 @@ async def postback_endpoint(request: Request):
     return await postback_handler(request)
 
 # ------------------------------
+# Константы для калькулятора ROI
+# ------------------------------
+ROI_INVESTMENT, ROI_INCOME = range(2)
+
+# ------------------------------
+# Функции для калькулятора ROI
+# ------------------------------
+async def roi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Удаляем предыдущий ответ бота, если он есть
+    last_msg_id = context.user_data.get("last_bot_message_id")
+    if last_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
+        except Exception as e:
+            logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
+    await update.message.reply_text("Введите сумму инвестиций:")
+    return ROI_INVESTMENT
+
+async def roi_investment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    try:
+        investment = float(text)
+    except ValueError:
+        await update.message.reply_text("Неверный формат числа. Введите сумму инвестиций числом:")
+        return ROI_INVESTMENT
+    context.user_data["investment"] = investment
+    await update.message.reply_text("Введите доход:")
+    return ROI_INCOME
+
+async def roi_income(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    try:
+        income = float(text)
+    except ValueError:
+        await update.message.reply_text("Неверный формат числа. Введите доход числом:")
+        return ROI_INCOME
+    investment = context.user_data.get("investment")
+    if not investment:
+        await update.message.reply_text("Ошибка: не задана сумма инвестиций.")
+        return ConversationHandler.END
+    roi = ((income - investment) / investment) * 100 if investment != 0 else 0
+    result_text = f"ROI: {roi:.2f}%"
+    await update.message.reply_text(result_text)
+    return ConversationHandler.END
+
+async def roi_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Расчет ROI отменен.")
+    return ConversationHandler.END
+
+# ------------------------------
 # Обработчики команд Telegram
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Удаляем предыдущий ответ бота (если есть)
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
@@ -191,13 +241,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    # Удаляем входящее сообщение пользователя
     try:
         await update.message.delete()
     except Exception as e:
         logger.debug(f"Не удалось удалить сообщение пользователя: {e}")
 
-    # Удаляем предыдущий ответ бота (если он есть)
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
@@ -386,6 +434,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ------------------------------
 telegram_app.add_handler(CommandHandler("start", start_command))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
+
+# Регистрируем ConversationHandler для ROI-калькулятора
+roi_conv_handler = ConversationHandler(
+    entry_points=[CommandHandler("roi", roi_command)],
+    states={
+        ROI_INVESTMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, roi_investment)],
+        ROI_INCOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, roi_income)],
+    },
+    fallbacks=[CommandHandler("cancel", roi_cancel)]
+)
+telegram_app.add_handler(roi_conv_handler)
 
 # ------------------------------
 # Основной запуск приложения
