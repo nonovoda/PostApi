@@ -220,7 +220,8 @@ async def roi_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Обработчики команд Telegram
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Удаляем предыдущее сообщение бота, если оно есть
+    # Добавляем задержку перед удалением предыдущего сообщения
+    await asyncio.sleep(0.5)
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
@@ -237,11 +238,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
+    # Добавляем задержку перед удалением сообщения пользователя
+    await asyncio.sleep(1)
     try:
         await update.message.delete()
     except Exception as e:
         logger.debug(f"Не удалось удалить сообщение пользователя: {e}")
 
+    await asyncio.sleep(0.5)
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
@@ -252,9 +256,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     logger.debug(f"Получено сообщение: {text}")
 
-    # Если пользователь нажал кнопку "💰 Калькулятор ROI" или отправил команду /roi, запускаем ROI-диалог
     if text == "💰 Калькулятор ROI" or text == "/roi":
         return await roi_command(update, context)
+    
+    # Дальнейшая логика обработки команд...
 
     headers = {
         "API-KEY": API_KEY,
