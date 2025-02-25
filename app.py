@@ -35,6 +35,7 @@ app = FastAPI()
 # ------------------------------
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
+    # Для упрощения извлекаем только первую запись
     if not data:
         return "⚠️ *Статистика не найдена.*"
     stat = data[0]
@@ -42,9 +43,9 @@ async def format_statistics(response_json, period_label: str) -> str:
     date_info = group_fields[0].get("label") if group_fields else "Не указано"
     clicks = stat.get("click_count", "N/A")
     unique_clicks = stat.get("click_unique_count", "N/A")
-    reg = stat.get("conversions", {}).get("registration", {})
-    dep = stat.get("conversions", {}).get("deposit", {})
-    confirmed = stat.get("conversions", {}).get("confirmed", {})
+    conversions = stat.get("conversions", {})
+    confirmed = conversions.get("confirmed", {})
+
     message = (
         f"**📊 Статистика ({period_label})**\n\n"
         f"**Дата:** _{date_info}_\n\n"
@@ -52,9 +53,7 @@ async def format_statistics(response_json, period_label: str) -> str:
         f"• **Всего:** _{clicks}_\n"
         f"• **Уникальные:** _{unique_clicks}_\n\n"
         f"**Конверсии:**\n"
-        f"• **Регистрация:** _{reg.get('count', 'N/A')}_ (💰 _{reg.get('payout', 'N/A')} USD_)\n"
-        f"• **Депозиты:** _{dep.get('count', 'N/A')}_ (💰 _{dep.get('payout', 'N/A')} USD_)\n"
-        f"**Доход:** _{confirmed.get('income', 'N/A')} USD_"
+        f"• **Подтвержденные:** _{confirmed.get('count', 'N/A')}_ (💰 _{confirmed.get('payout', 'N/A')} USD_)\n"
     )
     return message
 
@@ -63,7 +62,6 @@ async def format_statistics(response_json, period_label: str) -> str:
 # ------------------------------
 async def format_offers(response_json) -> str:
     offers = response_json.get("data", [])
-    meta = response_json.get("meta", {})
     if not offers:
         return "⚠️ *Офферы не найдены.*"
     message = "**📈 Топ офферы:**\n\n"
@@ -284,7 +282,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"**Клики:**\n"
             f"• **Всего:** _{total_clicks}_\n"
             f"• **Уникальные:** _{total_unique}_\n\n"
-            f"**Конверсии (подтверждённые):** _{total_confirmed}_\n"
+            f"**Конверсии (подтвержденные):** _{total_confirmed}_\n"
             f"**Доход:** _{total_income:.2f} USD_"
         )
         await update.message.reply_text(message, parse_mode="MarkdownV2")
@@ -320,7 +318,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         period_label = "За день"
         selected_date = now.strftime("%Y-%m-%d")
         date_from = f"{selected_date} 00:00"
-        date_to = date_from
+        date_to = f"{selected_date} 23:59"
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
@@ -341,12 +339,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
     
     elif text == "За прошлую неделю":
-        period_label = "За прошлую неделю (первый день)"
-        last_week_start = (now - timedelta(days=now.weekday() + 7)).replace(hour=0, minute=0, second=0, microsecond=0)
-        date_from = last_week_start.strftime("%Y-%m-%d %H:%M")
-        date_to = date_from
+        period_label = "За прошлую неделю (период)"
+        weekday = now.weekday()
+        last_monday = now - timedelta(days=weekday + 7)
+        date_from = last_monday.replace(hour=0, minute=0).strftime("%Y-%m-%d %H:%M")
+        last_sunday = last_monday + timedelta(days=6)
+        date_to = last_sunday.replace(hour=23, minute=59).strftime("%Y-%m-%d %H:%M")
         params = {
-            "group_by": "day",
+            "group_by": "hour",
             "timezone": "Europe/Moscow",
             "date_from": date_from,
             "date_to": date_to,
