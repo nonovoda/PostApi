@@ -57,13 +57,14 @@ async def format_statistics(response_json, period_label: str) -> str:
     return message
 
 # ------------------------------
-# Функция форматирования офферов (исправлено экранирование вертикальной черты)
+# Функция форматирования офферов (рабочая версия)
 # ------------------------------
 async def format_offers(response_json) -> str:
     offers = response_json.get("data", [])
     if not offers:
         return "⚠️ *Офферы не найдены.*"
     message = "**📈 Топ офферы:**\n\n"
+    # Чтобы избежать ошибки MarkdownV2 для символа '|', заменяем его вручную
     for offer in offers:
         message += f"• **ID:** {offer.get('id')} \\| **Название:** {offer.get('name')}\n"
     return message
@@ -113,7 +114,7 @@ async def postback_handler(request: Request):
     )
 
     try:
-        # Отправляем сообщение как есть (рабочая версия)
+        # Отправляем сообщение как есть (без дополнительного экранирования всего текста)
         await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="MarkdownV2")
         logger.debug("Постбек успешно отправлен в Telegram")
     except Exception as e:
@@ -316,7 +317,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         period_label = "За день"
         selected_date = now.strftime("%Y-%m-%d")
         date_from = f"{selected_date} 00:00"
-        date_to = date_from  # Для группировки по дню
+        date_to = f"{selected_date} 00:00"  # Для группировки по дню должны совпадать
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
@@ -337,7 +338,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "За прошлую неделю":
-        # Аггрегируем статистику за прошлую неделю (с понедельника по воскресенье)
+        # Агрегируем статистику за прошлую неделю (с понедельника по воскресенье)
         weekday = now.weekday()
         last_monday = (now - timedelta(days=weekday + 7)).date()
         last_sunday = last_monday + timedelta(days=6)
@@ -418,7 +419,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = "⚠️ Не удалось обработать ответ API."
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-        # Экранируем вертикальную черту в сообщении, чтобы Telegram корректно его распарсил
+        # Экранируем вертикальную черту, чтобы Telegram MarkdownV2 распознал сообщение корректно
         message = message.replace("|", "\\|")
         await update.message.reply_text(message, parse_mode="MarkdownV2")
     
