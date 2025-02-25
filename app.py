@@ -135,11 +135,11 @@ async def postback_handler(request: Request):
     return {"status": "ok"}
 
 # ------------------------------
-# Единый эндпоинт для входящих запросов (Telegram и постбеки)
+# Эндпоинт для Telegram-обновлений
 # ------------------------------
 @app.post("/webhook")
-async def webhook_handler(request: Request):
-    logger.debug("Получен запрос на /webhook")
+async def telegram_webhook_handler(request: Request):
+    logger.debug("Получен запрос на /webhook (Telegram)")
     try:
         data = await request.json()
         logger.debug(f"Полученные данные: {data}")
@@ -147,24 +147,40 @@ async def webhook_handler(request: Request):
         logger.error(f"Ошибка при разборе JSON: {e}")
         return {"error": "Некорректный JSON"}, 400
 
-    if "update_id" in data:
-        update = Update.de_json(data, telegram_app.bot)
-        if not telegram_app.running:
-            logger.warning("Telegram Application не запущено, выполняется инициализация...")
-            await init_telegram_app()
-        try:
-            await telegram_app.process_update(update)
-            return {"status": "ok"}
-        except Exception as e:
-            logger.error(f"Ошибка обработки обновления: {e}")
-            return {"error": "Ошибка сервера"}, 500
-    else:
-        return await postback_handler(request)
+    if "update_id" not in data:
+        logger.error("Запрос не содержит update_id, это не Telegram-обновление")
+        return {"error": "Неправильный запрос Telegram"}, 400
+
+    update = Update.de_json(data, telegram_app.bot)
+    if not telegram_app.running:
+        logger.warning("Telegram Application не запущено, выполняется инициализация...")
+        await init_telegram_app()
+    try:
+        await telegram_app.process_update(update)
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Ошибка обработки обновления: {e}")
+        return {"error": "Ошибка сервера"}, 500
+
+# ------------------------------
+# Эндпоинт для постбеков
+# ------------------------------
+@app.post("/postback")
+async def postback_endpoint(request: Request):
+    logger.debug("Получен запрос на /postback (Постбек)")
+    return await postback_handler(request)
 
 # ------------------------------
 # Обработчики команд Telegram
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Удаляем предыдущий ответ бота (если есть) для команд
+    last_msg_id = context.user_data.get("last_bot_message_id")
+    if last_msg_id:
+        try:
+            await update.message.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
+        except Exception as e:
+            logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
     main_keyboard = get_main_menu()
     logger.debug("Отправка основного меню")
     text = "Привет! Выберите команду:"
@@ -181,16 +197,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.debug(f"Не удалось удалить сообщение пользователя: {e}")
 
-    text = update.message.text.strip()
-    logger.debug(f"Получено сообщение: {text}")
-
-    # Удаляем предыдущее сообщение бота, если оно существует
+    # Удаляем предыдущий ответ бота (для команд, не для постбеков)
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
             await update.message.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
         except Exception as e:
             logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
+
+    text = update.message.text.strip()
+    logger.debug(f"Получено сообщение: {text}")
 
     headers = {
         "API-KEY": API_KEY,
@@ -359,7 +375,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "Назад":
         sent_msg = await update.message.reply_text("Возврат в главное меню:", reply_markup=get_main_menu(), parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
-    
+
     else:
         sent_msg = await update.message.reply_text("Неизвестная команда. Попробуйте снова.", parse_mode="HTML", reply_markup=get_main_menu())
         context.user_data["last_bot_message_id"] = sent_msg.message_id
