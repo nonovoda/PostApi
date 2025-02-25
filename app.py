@@ -30,7 +30,7 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 def get_main_menu():
-    # Главное меню всегда содержит только одну кнопку "Получить статистику"
+    # Главное меню всегда содержит только кнопку "Получить статистику"
     return ReplyKeyboardMarkup(
         [[KeyboardButton(text="Получить статистику")]],
         resize_keyboard=True,
@@ -38,12 +38,11 @@ def get_main_menu():
     )
 
 def get_statistics_menu():
-    # Подменю для статистики: "За час", "За сегодня", "За прошлую неделю", "За период", "За месяц", "Назад"
+    # Подменю для выбора периода статистики
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(text="За час"), KeyboardButton(text="За сегодня")],
-            [KeyboardButton(text="За прошлую неделю"), KeyboardButton(text="За период")],
-            [KeyboardButton(text="За месяц")],
+            [KeyboardButton(text="За сегодня")],
+            [KeyboardButton(text="За период"), KeyboardButton(text="За месяц")],
             [KeyboardButton(text="Назад")]
         ],
         resize_keyboard=True,
@@ -72,13 +71,13 @@ async def format_statistics(response_json, period_label: str) -> str:
         f"• <b>Всего:</b> <i>{clicks}</i>\n"
         f"• <b>Уникальные:</b> <i>{unique_clicks}</i>\n\n"
         f"<b>Конверсии:</b>\n"
-        f"<b>✅ Подтвержденные:</b> <i>{confirmed.get('count', 'N/A')}</i>\n"
-        f"<b>💰 Доход:</b> <i>{confirmed.get('payout', 'N/A')} USD</i>\n"
+        f"✅ <b>Подтвержденные:</b> <i>{confirmed.get('count', 'N/A')}</i>\n"
+        f"💰 <b>Доход:</b> <i>{confirmed.get('payout', 'N/A')} USD</i>\n"
     )
     return message
 
 # ------------------------------
-# Функция форматирования офферов (HTML формат) – не используется, т.к. кнопка удалена
+# Функция форматирования офферов (HTML формат)
 # ------------------------------
 async def format_offers(response_json) -> str:
     offers = response_json.get("data", [])
@@ -187,7 +186,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    # Удаляем входящее сообщение, чтобы диалог оставался чистым
+    # Удаляем входящее сообщение для чистоты диалога
     try:
         await update.message.delete()
     except Exception as e:
@@ -201,9 +200,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Content-Type": "application/json",
         "User-Agent": "TelegramBot/1.0 (compatible; Alanbase API integration)"
     }
-    now = datetime.now()  # Можно добавить ZoneInfo("Europe/Moscow"), если требуется
+    now = datetime.now()  # Можно заменить на datetime.now(ZoneInfo("Europe/Moscow")) при необходимости
 
-    # Главное меню для статистики
     if text == "Получить статистику":
         reply_markup = get_statistics_menu()
         logger.debug("Отправка подменю для выбора периода статистики")
@@ -267,39 +265,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"<b>Клики:</b>\n"
             f"• <b>Всего:</b> <i>{total_clicks}</i>\n"
             f"• <b>Уникальные:</b> <i>{total_unique}</i>\n\n"
-            f"<b>Конверсии (подтвержденные):</b> <i>{total_confirmed}</i>\n"
-            f"<b>Доход:</b> <i>{total_income:.2f} USD</i>"
+            f"<b>Конверсии:</b>\n"
+            f"✅ <b>Подтвержденные:</b> <i>{total_confirmed}</i>\n"
+            f"💰 <b>Доход:</b> <i>{total_income:.2f} USD</i>"
         )
         await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
         context.user_data["awaiting_period"] = False
         return
 
     # Основные варианты выбора периода
-    if text == "За час":
-        period_label = "За час"
-        current_hour = now.replace(minute=0, second=0, microsecond=0)
-        date_from = current_hour.strftime("%Y-%m-%d %H:%M")
-        date_to = date_from  # Для группировки по часу
-        params = {
-            "group_by": "hour",
-            "timezone": "Europe/Moscow",
-            "date_from": date_from,
-            "date_to": date_to,
-            "currency_code": "USD"
-        }
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
-            if response.status_code == 200:
-                data = response.json()
-                message = await format_statistics(data, period_label)
-            else:
-                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-        except Exception as e:
-            message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
-
-    elif text == "За сегодня":
+    if text == "За сегодня":
         period_label = "За сегодня"
         selected_date = now.strftime("%Y-%m-%d")
         date_from = f"{selected_date} 00:00"
@@ -323,72 +298,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message = f"⚠️ Ошибка запроса: {e}"
         await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
 
-    elif text == "За прошлую неделю":
-        # Агрегируем статистику за прошлую неделю (с понедельника по воскресенье)
-        weekday = now.weekday()
-        last_monday = (now - timedelta(days=weekday + 7)).date()
-        last_sunday = last_monday + timedelta(days=6)
-        period_label = f"За {last_monday.strftime('%Y-%m-%d')} - {last_sunday.strftime('%Y-%m-%d')}"
-        total_clicks = total_unique = total_confirmed = 0
-        total_income = 0.0
-        current_date = last_monday
-        while current_date <= last_sunday:
-            d_str = current_date.strftime("%Y-%m-%d")
-            date_from = f"{d_str} 00:00"
-            date_to = date_from  # Для группировки по дню
-            params = {
-                "group_by": "day",
-                "timezone": "Europe/Moscow",
-                "date_from": date_from,
-                "date_to": date_to,
-                "currency_code": "USD"
-            }
-            try:
-                async with httpx.AsyncClient(timeout=10) as client:
-                    response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
-            except Exception as e:
-                await update.message.reply_text(f"⚠️ Ошибка запроса: {e}", parse_mode="HTML")
-                return
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("data"):
-                    stat = data["data"][0]
-                    total_clicks += int(stat.get("click_count", 0) or 0)
-                    total_unique += int(stat.get("click_unique_count", 0) or 0)
-                    conv = stat.get("conversions", {})
-                    total_confirmed += int(conv.get("confirmed", {}).get("count", 0) or 0)
-                    total_income += float(conv.get("confirmed", {}).get("income", 0) or 0)
-            current_date += timedelta(days=1)
-        if total_clicks == 0 and total_unique == 0 and total_confirmed == 0:
-            message = "⚠️ Статистика не найдена за указанный период."
-        else:
-            message = (
-                f"<b>📊 Статистика ({period_label})</b>\n\n"
-                f"<b>Клики:</b>\n"
-                f"• <b>Всего:</b> <i>{total_clicks}</i>\n"
-                f"• <b>Уникальные:</b> <i>{total_unique}</i>\n\n"
-                f"<b>Конверсии (подтвержденные):</b> <i>{total_confirmed}</i>\n"
-                f"<b>Доход:</b> <i>{total_income:.2f} USD</i>"
-            )
-        await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
-    
-    elif text == "За период":
-        await update.message.reply_text("🗓 Введите диапазон дат в формате YYYY-MM-DD,YYYY-MM-DD:", parse_mode="HTML")
-        context.user_data["awaiting_period"] = True
-    
     elif text == "За месяц":
-        # Определяем первый и последний день текущего месяца
-        first_day = now.replace(day=1).date()
-        if now.month == 12:
-            next_month_first = now.replace(year=now.year+1, month=1, day=1).date()
-        else:
-            next_month_first = now.replace(month=now.month+1, day=1).date()
-        last_day = next_month_first - timedelta(days=1)
-        period_label = f"За {first_day.strftime('%Y-%m-%d')} - {last_day.strftime('%Y-%m-%d')}"
+        # Рассчитываем статистику за последние 30 дней (с сегодняшнего дня как конечного)
+        end_date = now.date()
+        start_date = end_date - timedelta(days=30)
+        period_label = f"За {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
         total_clicks = total_unique = total_confirmed = 0
         total_income = 0.0
-        current_date = first_day
-        end_date = last_day
+        current_date = start_date
         while current_date <= end_date:
             d_str = current_date.strftime("%Y-%m-%d")
             date_from = f"{d_str} 00:00"
@@ -424,11 +341,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"<b>Клики:</b>\n"
                 f"• <b>Всего:</b> <i>{total_clicks}</i>\n"
                 f"• <b>Уникальные:</b> <i>{total_unique}</i>\n\n"
-                f"<b>Конверсии (подтвержденные):</b> <i>{total_confirmed}</i>\n"
-                f"<b>Доход:</b> <i>{total_income:.2f} USD</i>"
+                f"<b>Конверсии:</b>\n"
+                f"✅ <b>Подтвержденные:</b> <i>{total_confirmed}</i>\n"
+                f"💰 <b>Доход:</b> <i>{total_income:.2f} USD</i>"
             )
         await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
-    
+
+    elif text == "За период":
+        await update.message.reply_text("🗓 Введите диапазон дат в формате YYYY-MM-DD,YYYY-MM-DD:", parse_mode="HTML")
+        context.user_data["awaiting_period"] = True
+
     elif text == "Назад":
         await update.message.reply_text("Возврат в главное меню:", reply_markup=get_main_menu(), parse_mode="HTML")
     
