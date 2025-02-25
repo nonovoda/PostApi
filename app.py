@@ -14,7 +14,6 @@ from telegram.helpers import escape_markdown
 API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
-# Новый URL API (сообщили в поддержке Alanbase)
 BASE_API_URL = "https://4rabet.api.alanbase.com/v1"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-bot.onrender.com/webhook")
 PORT = int(os.environ.get("PORT", 8000))
@@ -77,7 +76,7 @@ async def format_offers(response_json) -> str:
     for offer in offers:
         offer_id = escape_markdown(str(offer.get('id')), version=2)
         offer_name = escape_markdown(str(offer.get('name')), version=2)
-        # Символ '|' экранируется вручную
+        # Экранируем символ '|' вручную
         message += f"• **ID:** {offer_id} \\| **Название:** {offer_name}\n"
     return message
 
@@ -189,7 +188,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     now = datetime.now()
 
-    # Если бот ожидает ввод даты или диапазона – обрабатываем его в первую очередь
+    # Обработка ввода даты или диапазона
     if context.user_data.get("awaiting_date"):
         try:
             date_obj = datetime.strptime(text, "%Y-%m-%d").date()
@@ -214,9 +213,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data = response.json()
                 message = await format_statistics(data, period_label)
             else:
-                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+                err_msg = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+                message = escape_markdown(err_msg, version=2)
         except Exception as e:
-            message = f"⚠️ Ошибка запроса: {e}"
+            message = escape_markdown(f"⚠️ Ошибка запроса: {e}", version=2)
         await update.message.reply_text(message, parse_mode="MarkdownV2")
         context.user_data["awaiting_date"] = False
         return
@@ -301,7 +301,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         period_label = "За час"
         current_hour = now.replace(minute=0, second=0, microsecond=0)
         date_from = current_hour.strftime("%Y-%m-%d %H:%M")
-        date_to = date_from  # API требует равенства дат
+        date_to = date_from
         params = {
             "group_by": "hour",
             "timezone": "Europe/Moscow",
@@ -316,16 +316,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data = response.json()
                 message = await format_statistics(data, period_label)
             else:
-                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+                err_msg = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+                message = escape_markdown(err_msg, version=2)
         except Exception as e:
-            message = f"⚠️ Ошибка запроса: {e}"
+            message = escape_markdown(f"⚠️ Ошибка запроса: {e}", version=2)
         await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "За день":
         period_label = "За день"
         selected_date = now.strftime("%Y-%m-%d")
         date_from = f"{selected_date} 00:00"
-        date_to = date_from  # для группировки по дню
+        date_to = date_from
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
@@ -340,16 +341,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data = response.json()
                 message = await format_statistics(data, period_label)
             else:
-                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+                err_msg = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+                message = escape_markdown(err_msg, version=2)
         except Exception as e:
-            message = f"⚠️ Ошибка запроса: {e}"
+            message = escape_markdown(f"⚠️ Ошибка запроса: {e}", version=2)
         await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "За прошлую неделю":
         period_label = "За прошлую неделю (первый день)"
         last_week_start = (now - timedelta(days=now.weekday() + 7)).replace(hour=0, minute=0, second=0, microsecond=0)
         date_from = last_week_start.strftime("%Y-%m-%d %H:%M")
-        date_to = date_from  # для группировки по дню
+        date_to = date_from
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
@@ -364,9 +366,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data = response.json()
                 message = await format_statistics(data, period_label)
             else:
-                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+                err_msg = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+                message = escape_markdown(err_msg, version=2)
         except Exception as e:
-            message = f"⚠️ Ошибка запроса: {e}"
+            message = escape_markdown(f"⚠️ Ошибка запроса: {e}", version=2)
         await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "За дату":
@@ -401,7 +404,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Ошибка обработки JSON: {e}")
                 message = "⚠️ Не удалось обработать ответ API."
         else:
-            message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+            err_msg = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+            message = escape_markdown(err_msg, version=2)
         await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "🔄 Обновить данные":
@@ -413,5 +417,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [KeyboardButton(text="📈 Топ офферы")],
             [KeyboardButton(text="🔄 Обновить данные")]
         ]
-        reply_markup = ReplyKeyboardMarkup(main_keyboard)
+        reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
+        logger.debug("Возврат в главное меню")
+        await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup)
+    
+    else:
+        await update.message.reply_text("❗ Неизвестная команда. Попробуйте снова.", parse_mode="MarkdownV2")
 
+# ------------------------------
+# Регистрация обработчиков Telegram
+# ------------------------------
+telegram_app.add_handler(CommandHandler("start", start_command))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
+
+# ------------------------------
+# Основной запуск
+# ------------------------------
+if __name__ == "__main__":
+    import uvicorn
+    loop = asyncio.get_event_loop()
+    loop.create_task(init_telegram_app())
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
