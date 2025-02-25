@@ -163,39 +163,50 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "Привет! Выберите команду:"
     await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
 
-from zoneinfo import ZoneInfo  # добавьте в импорты
-
-...
-
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
-    text = update.message.text.strip()  # удаляем лишние пробелы
+
+    text = update.message.text
     logger.debug(f"Получено сообщение: {text}")
-    ...
 
     headers = {
         "API-KEY": API_KEY,
         "Content-Type": "application/json",
         "User-Agent": "TelegramBot/1.0 (compatible; Alanbase API integration)"
     }
-    # Используем актуальное время в московском часовом поясе
-    now = datetime.now(ZoneInfo("Europe/Moscow"))
+    now = datetime.now()
 
-    if text == "За час":
-        period_label = "За час"
-        current_hour = now.replace(minute=0, second=0, microsecond=0)
-        date_from = current_hour.strftime("%Y-%m-%d %H:%M")
-        date_to = date_from  # Для группировки по часу
+    if text == "Получить статистику":
+        period_keyboard = [
+            [KeyboardButton(text="За час"), KeyboardButton(text="За день")],
+            [KeyboardButton(text="За прошлую неделю"), KeyboardButton(text="За дату")],
+            [KeyboardButton(text="За период")],
+            [KeyboardButton(text="Назад")]
+        ]
+        reply_markup = ReplyKeyboardMarkup(period_keyboard, resize_keyboard=True, one_time_keyboard=True)
+        logger.debug("Отправка подменю для выбора периода статистики")
+        await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup, parse_mode="HTML")
+        return
+
+    # Обработка ввода даты (команда "За дату")
+    if context.user_data.get("awaiting_date"):
+        try:
+            date_obj = datetime.strptime(text, "%Y-%m-%d").date()
+        except ValueError:
+            await update.message.reply_text("❗ Неверный формат даты. Используйте формат YYYY-MM-DD.", parse_mode="HTML")
+            return
+        period_label = f"За {date_obj.strftime('%Y-%m-%d')}"
+        date_str = date_obj.strftime("%Y-%m-%d")
+        date_from = f"{date_str} 00:00"
+        date_to = date_from  # Для режима "За дату" должны совпадать
         params = {
-            "group_by": "hour",
+            "group_by": "day",
             "timezone": "Europe/Moscow",
             "date_from": date_from,
             "date_to": date_to,
             "currency_code": "USD"
         }
-        ...
-
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
