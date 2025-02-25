@@ -174,13 +174,13 @@ async def postback_endpoint(request: Request):
 # Обработчики команд Telegram
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Удаляем предыдущий ответ бота (если есть) для команд
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
         except Exception as e:
             logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
+    # Далее отправка нового сообщения...
     main_keyboard = get_main_menu()
     logger.debug("Отправка основного меню")
     text = "Привет! Выберите команду:"
