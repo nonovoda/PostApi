@@ -13,7 +13,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
-BASE_API_URL = "https://api.alanbase.com/v1"
+# Обновлённый базовый URL согласно поддержке Alanbase:
+BASE_API_URL = "https://4rabet.api.alanbase.com/v1"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-bot.onrender.com/webhook")
 PORT = int(os.environ.get("PORT", 8000))
 
@@ -182,7 +183,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["Получить статистику"],
         ["📈 Топ офферы"],
-        ["🔄 Обновить данные"]
+        ["🔄 Обновить данные"],
+        ["Тестовый запрос"]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
     logger.debug("Отправка основного меню")
@@ -195,7 +197,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     logger.debug(f"Получено сообщение: {text}")
 
-    # Заголовки для всех запросов
     headers = {
         "API-KEY": API_KEY,
         "Content-Type": "application/json",
@@ -204,7 +205,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now()
     
     if text == "Тестовый запрос":
-        # Формируем словарь параметров с пустыми значениями
         params = {
             "timezone": "",
             "date_from": "",
@@ -366,4 +366,3 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-
