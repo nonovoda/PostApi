@@ -43,6 +43,7 @@ async def format_statistics(response_json, period_label: str) -> str:
     unique_clicks = stat.get("click_unique_count", "N/A")
     conversions = stat.get("conversions", {})
     confirmed = conversions.get("confirmed", {})
+
     message = (
         f"<b>📊 Статистика ({period_label})</b>\n\n"
         f"<b>Дата:</b> <i>{date_info}</i>\n\n"
