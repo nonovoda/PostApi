@@ -50,7 +50,7 @@ def get_statistics_menu():
     )
 
 # ------------------------------
-# Функция форматирования статистики согласно API (HTML формат)
+# Функция форматирования общей статистики (HTML формат)
 # ------------------------------
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
@@ -70,11 +70,47 @@ async def format_statistics(response_json, period_label: str) -> str:
         f"<b>Клики:</b>\n"
         f"• <b>Всего:</b> <i>{clicks}</i>\n"
         f"• <b>Уникальные:</b> <i>{unique_clicks}</i>\n\n"
-        f"<b>Конверсии:</b>\n"
-        f"✅ <b>Подтвержденные:</b> <i>{confirmed.get('count', 'N/A')}</i>\n"
-        f"💰 <b>Доход:</b> <i>{confirmed.get('payout', 'N/A')} USD</i>\n"
     )
     return message
+
+# ------------------------------
+# Функция получения детализированных конверсий через /partner/statistic/conversions
+# ------------------------------
+async def get_detailed_conversions(date_from: str, date_to: str, timezone: str = "Europe/Moscow") -> dict:
+    # Формат для date_from/date_to должен быть "YYYY-MM-DD HH:mm:ss"
+    params = {
+        "timezone": timezone,
+        "date_from": date_from,
+        "date_to": date_to,
+        "statuses": [1],  # 1 - Confirmed
+        "currency_code": "USD"
+    }
+    headers = {
+        "API-KEY": API_KEY,
+        "Content-Type": "application/json"
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{BASE_API_URL}/partner/statistic/conversions", headers=headers, params=params)
+    if response.status_code == 200:
+        data = response.json().get("data", [])
+        # Инициализируем счетчики
+        result = {"registration": 0, "deposit": 0, "repeat_deposit": 0, "income": 0.0}
+        for conv in data:
+            goal = conv.get("goal", "").lower()
+            payout = float(conv.get("payout", 0) or 0)
+            # Здесь мы предполагаем, что API возвращает поле "goal" с нужными значениями.
+            if goal == "registration":
+                result["registration"] += 1
+                result["income"] += payout
+            elif goal == "deposit":
+                result["deposit"] += 1
+                result["income"] += payout
+            elif goal == "repeat_deposit":
+                result["repeat_deposit"] += 1
+                result["income"] += payout
+        return result
+    else:
+        return None
 
 # ------------------------------
 # Инициализация Telegram-бота
@@ -201,7 +237,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "Получить статистику":
         reply_markup = get_statistics_menu()
-        logger.debug("Отправка подменю для выбора периода статистики")
         sent_msg = await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup, parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
@@ -263,16 +298,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["awaiting_period"] = False
             return
         period_label = f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
-        message = (
+        message_common = (
             f"<b>📊 Статистика ({period_label})</b>\n\n"
             f"<b>Клики:</b>\n"
             f"• <b>Всего:</b> <i>{total_clicks}</i>\n"
             f"• <b>Уникальные:</b> <i>{total_unique}</i>\n\n"
-            f"<b>Конверсии:</b>\n"
-            f"✅ <b>Подтвержденные:</b> <i>{total_confirmed}</i>\n"
-            f"💰 <b>Доход:</b> <i>{total_income:.2f} USD</i>"
         )
-        sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
+        # Получаем детальную статистику по конверсиям через новый эндпоинт
+        date_from_conv = f"{start_date.strftime('%Y-%m-%d')} 00:00:00"
+        date_to_conv = f"{end_date.strftime('%Y-%m-%d')} 23:59:59"
+        detailed = await get_detailed_conversions(date_from_conv, date_to_conv)
+        if detailed is not None:
+            detailed_message = (
+                f"<b>Конверсии:</b>\n"
+                f"• Регистрации: {detailed.get('registration', 0)}\n"
+                f"• Депозиты: {detailed.get('deposit', 0)}\n"
+                f"• Повторные депозиты: {detailed.get('repeat_deposit', 0)}\n"
+                f"• Доход: {detailed.get('income', 0):.2f} USD\n"
+            )
+        else:
+            detailed_message = "<b>Конверсии:</b> <i>Данные не получены.</i>\n"
+        final_message = message_common + detailed_message
+        sent_msg = await update.message.reply_text(final_message, parse_mode="HTML", reply_markup=get_main_menu())
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         context.user_data["awaiting_period"] = False
         return
@@ -280,13 +327,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "За сегодня":
         period_label = "За сегодня"
         selected_date = now.strftime("%Y-%m-%d")
-        date_from = f"{selected_date} 00:00"
-        date_to = f"{selected_date} 00:00"
+        date_from_common = f"{selected_date} 00:00"
+        date_to_common = f"{selected_date} 00:00"
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
-            "date_from": date_from,
-            "date_to": date_to,
+            "date_from": date_from_common,
+            "date_to": date_to_common,
             "currency_code": "USD"
         }
         try:
@@ -294,12 +341,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
             if response.status_code == 200:
                 data = response.json()
-                message = await format_statistics(data, period_label)
+                message_common = await format_statistics(data, period_label)
             else:
-                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+                message_common = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
-            message = f"⚠️ Ошибка запроса: {e}"
-        sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
+            message_common = f"⚠️ Ошибка запроса: {e}"
+        # Получаем детальную статистику по конверсиям для "За сегодня"
+        date_from_conv = f"{selected_date} 00:00:00"
+        date_to_conv = f"{selected_date} 23:59:59"
+        detailed = await get_detailed_conversions(date_from_conv, date_to_conv)
+        if detailed is not None:
+            detailed_message = (
+                f"<b>Конверсии:</b>\n"
+                f"• Регистрации: {detailed.get('registration', 0)}\n"
+                f"• Депозиты: {detailed.get('deposit', 0)}\n"
+                f"• Повторные депозиты: {detailed.get('repeat_deposit', 0)}\n"
+                f"• Доход: {detailed.get('income', 0):.2f} USD\n"
+            )
+        else:
+            detailed_message = "<b>Конверсии:</b> <i>Данные не получены.</i>\n"
+        final_message = message_common + detailed_message
+        sent_msg = await update.message.reply_text(final_message, parse_mode="HTML", reply_markup=get_main_menu())
         context.user_data["last_bot_message_id"] = sent_msg.message_id
 
     elif text == "За месяц":
@@ -359,7 +421,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "Назад":
         sent_msg = await update.message.reply_text("Возврат в главное меню:", reply_markup=get_main_menu(), parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
-    
+
     else:
         sent_msg = await update.message.reply_text("Неизвестная команда. Попробуйте снова.", parse_mode="HTML", reply_markup=get_main_menu())
         context.user_data["last_bot_message_id"] = sent_msg.message_id
