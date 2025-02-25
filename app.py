@@ -22,7 +22,9 @@ logging.basicConfig(
     level=logging.DEBUG
 )
 logger = logging.getLogger(__name__)
-logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API_KEY != 'ВАШ_API_КЛЮЧ' else API_KEY}, TELEGRAM_TOKEN = {TELEGRAM_TOKEN[:4]+'****' if TELEGRAM_TOKEN != 'ВАШ_ТОКЕН' else TELEGRAM_TOKEN}, TELEGRAM_CHAT_ID = {TELEGRAM_CHAT_ID}")
+logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API_KEY != 'ВАШ_API_КЛЮЧ' else API_KEY}, "
+             f"TELEGRAM_TOKEN = {TELEGRAM_TOKEN[:4]+'****' if TELEGRAM_TOKEN != 'ВАШ_ТОКЕН' else TELEGRAM_TOKEN}, "
+             f"TELEGRAM_CHAT_ID = {TELEGRAM_CHAT_ID}")
 
 # ------------------------------
 # Создание экземпляра FastAPI
@@ -30,7 +32,6 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 def get_main_menu():
-    # Главное меню всегда содержит кнопку "Получить статистику"
     return ReplyKeyboardMarkup(
         [[KeyboardButton(text="Получить статистику")]],
         resize_keyboard=True,
@@ -38,7 +39,6 @@ def get_main_menu():
     )
 
 def get_statistics_menu():
-    # Подменю для выбора периода статистики
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(text="За сегодня")],
@@ -50,7 +50,7 @@ def get_statistics_menu():
     )
 
 # ------------------------------
-# Функция форматирования статистики согласно API (HTML формат)
+# Форматирование статистики (HTML формат)
 # ------------------------------
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
@@ -88,7 +88,7 @@ async def init_telegram_app():
     logger.debug("Telegram-бот успешно запущен!")
 
 # ------------------------------
-# Обработка постбеков от ПП (HTML формат)
+# Обработка постбеков (HTML формат)
 # ------------------------------
 async def postback_handler(request: Request):
     try:
@@ -174,13 +174,13 @@ async def postback_endpoint(request: Request):
 # Обработчики команд Telegram
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Удаляем предыдущий ответ бота (если есть)
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
         except Exception as e:
             logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
-    # Далее отправка нового сообщения...
     main_keyboard = get_main_menu()
     logger.debug("Отправка основного меню")
     text = "Привет! Выберите команду:"
@@ -191,19 +191,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    # Удаляем входящее сообщение пользователя для чистоты диалога
+    # Удаляем входящее сообщение пользователя
     try:
         await update.message.delete()
     except Exception as e:
         logger.debug(f"Не удалось удалить сообщение пользователя: {e}")
 
- # Удаляем предыдущий ответ бота (для команд, не для постбеков)
-last_msg_id = context.user_data.get("last_bot_message_id")
-if last_msg_id:
-    try:
-        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
-    except Exception as e:
-        logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
+    # Удаляем предыдущий ответ бота (если он есть)
+    last_msg_id = context.user_data.get("last_bot_message_id")
+    if last_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
+        except Exception as e:
+            logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
 
     text = update.message.text.strip()
     logger.debug(f"Получено сообщение: {text}")
@@ -213,7 +213,7 @@ if last_msg_id:
         "Content-Type": "application/json",
         "User-Agent": "TelegramBot/1.0 (compatible; Alanbase API integration)"
     }
-    now = datetime.now()  # При необходимости можно использовать ZoneInfo("Europe/Moscow")
+    now = datetime.now()
 
     if text == "Получить статистику":
         reply_markup = get_statistics_menu()
@@ -222,7 +222,6 @@ if last_msg_id:
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
 
-    # Обработка ввода диапазона дат (За период)
     if context.user_data.get("awaiting_period"):
         parts = text.split(",")
         if len(parts) != 2:
@@ -240,6 +239,7 @@ if last_msg_id:
             sent_msg = await update.message.reply_text("❗ Начальная дата должна быть раньше конечной.", parse_mode="HTML")
             context.user_data["last_bot_message_id"] = sent_msg.message_id
             return
+
         total_clicks = total_unique = total_confirmed = 0
         total_income = 0.0
         days_count = 0
@@ -278,6 +278,7 @@ if last_msg_id:
             context.user_data["last_bot_message_id"] = sent_msg.message_id
             context.user_data["awaiting_period"] = False
             return
+
         period_label = f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
         message = (
             f"<b>📊 Статистика ({period_label})</b>\n\n"
@@ -319,7 +320,6 @@ if last_msg_id:
         context.user_data["last_bot_message_id"] = sent_msg.message_id
 
     elif text == "За месяц":
-        # Рассчитываем статистику за последние 30 дней (с сегодняшнего дня как конечного)
         end_date = now.date()
         start_date = end_date - timedelta(days=30)
         period_label = f"За {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
@@ -369,7 +369,8 @@ if last_msg_id:
         context.user_data["last_bot_message_id"] = sent_msg.message_id
 
     elif text == "За период":
-        await update.message.reply_text("🗓 Введите диапазон дат в формате YYYY-MM-DD,YYYY-MM-DD:", parse_mode="HTML")
+        sent_msg = await update.message.reply_text("🗓 Введите диапазон дат в формате YYYY-MM-DD,YYYY-MM-DD:", parse_mode="HTML")
+        context.user_data["last_bot_message_id"] = sent_msg.message_id
         context.user_data["awaiting_period"] = True
 
     elif text == "Назад":
@@ -387,7 +388,7 @@ telegram_app.add_handler(CommandHandler("start", start_command))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
 
 # ------------------------------
-# Основной запуск
+# Основной запуск приложения
 # ------------------------------
 if __name__ == "__main__":
     import uvicorn
