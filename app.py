@@ -170,9 +170,9 @@ from zoneinfo import ZoneInfo  # добавьте в импорты
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
-
-    text = update.message.text
+    text = update.message.text.strip()  # удаляем лишние пробелы
     logger.debug(f"Получено сообщение: {text}")
+    ...
 
     headers = {
         "API-KEY": API_KEY,
