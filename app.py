@@ -79,6 +79,22 @@ async def format_offers(response_json) -> str:
     message += f"\nℹ️ Страница: {meta.get('page', 'N/A')} / Всего: {meta.get('total_count', 'N/A')}"
     return message
 
+async def format_conversion(response_json) -> str:
+    data = response_json.get("data", [])
+    if not data:
+        return "⚠️ Конверсии не найдены."
+    conv = data[0]
+    message = (
+        f"🚀 *Тестовая конверсия:*\n\n"
+        f"ID: {conv.get('conversion_id', 'N/A')}\n"
+        f"Статус: {conv.get('status', 'N/A')}\n"
+        f"Причина отклонения: {conv.get('decline_reason', 'N/A')}\n"
+        f"Дата конверсии: {conv.get('conversion_datetime', 'N/A')}\n"
+        f"Модель оплаты: {conv.get('payment_model', 'N/A')}\n"
+        f"Платёж: {conv.get('payout', 'N/A')} {conv.get('payout_currency', 'USD')}\n"
+    )
+    return message
+
 # ------------------------------
 # Инициализация Telegram-бота
 # ------------------------------
@@ -165,7 +181,7 @@ async def webhook_handler(request: Request):
 # Обработчики команд Telegram (асинхронные)
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Удаляем отдельные кнопки для "Статистика за день", "Тестовая конверсия" и "Детальная статистика"
+    # Главное меню с кнопками
     keyboard = [
         ["Получить статистику"],
         ["📈 Топ офферы"],
@@ -182,7 +198,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     logger.debug(f"Получено сообщение: {text}")
 
-    # Заголовки для всех запросов
     headers = {
         "API-KEY": API_KEY,
         "Content-Type": "application/json",
@@ -191,18 +206,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now()
     
     if text == "Получить статистику":
-        # Подменю с вариантами для статистики
-        period_keyboard = [["За час", "За прошлую неделю"], ["Назад"]]
+        # Подменю статистики
+        period_keyboard = [["За час", "За день"], ["За прошлую неделю"], ["Назад"]]
         reply_markup = ReplyKeyboardMarkup(period_keyboard, resize_keyboard=True, one_time_keyboard=True)
         logger.debug("Отправка подменю для выбора периода статистики")
         await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup)
     
-    elif text in ["За час", "За прошлую неделю"]:
+    elif text in ["За час", "За день", "За прошлую неделю"]:
         period_label = text
         if text == "За час":
             date_from = (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
             date_to = now.strftime("%Y-%m-%d %H:%M:%S")
             group_by = "hour"
+        elif text == "За день":
+            selected_date = now.strftime("%Y-%m-%d 00:00:00")
+            date_from = selected_date
+            date_to = selected_date
+            group_by = "day"
         elif text == "За прошлую неделю":
             weekday = now.weekday()
             last_monday = now - timedelta(days=weekday + 7)
@@ -218,7 +238,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "date_to": date_to,
             "currency_code": "USD"
         }
-        logger.debug(f"Отправка запроса к {BASE_API_URL}/partner/statistic/common с параметрами: {params} и заголовками: {headers}")
+        # Дополнительное логирование: формирование полного URL запроса
+        full_url = str(httpx.URL(f"{BASE_API_URL}/partner/statistic/common").copy_merge_params(params))
+        logger.debug(f"Полный URL запроса: {full_url}")
+        
+        logger.debug(f"Отправка запроса к {BASE_API_URL}/partner/statistic/common с заголовками: {headers}")
         start_time = datetime.now()
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -273,7 +297,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔄 Данные обновлены!")
     
     elif text == "Назад":
-        # Возвращаем в основное меню
         main_keyboard = [
             ["Получить статистику"],
             ["📈 Топ офферы"],
@@ -300,4 +323,3 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-
