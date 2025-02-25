@@ -43,30 +43,22 @@ async def format_statistics(response_json, period_label: str) -> str:
     clicks = stat.get("click_count", "N/A")
     unique_clicks = stat.get("click_unique_count", "N/A")
     confirmed = stat.get("conversions", {}).get("confirmed", {})
+    # Новое: выводим только подтверждённые конверсии и доход
     confirmed_count = confirmed.get("count", "N/A")
     income = confirmed.get("income", "N/A")
-    
-    # Экранирование динамических данных
-    period_label_esc = escape_markdown(period_label, version=2)
-    date_info_esc = escape_markdown(date_info, version=2)
-    clicks_esc = escape_markdown(str(clicks), version=2)
-    unique_clicks_esc = escape_markdown(str(unique_clicks), version=2)
-    confirmed_count_esc = escape_markdown(str(confirmed_count), version=2)
-    income_esc = escape_markdown(str(income), version=2)
-    
     message = (
-        f"**📊 Статистика ({period_label_esc})**\n\n"
-        f"**📅 Дата:** _{date_info_esc}_\n\n"
-        f"**🖱 Клики:**\n"
-        f"• **Всего:** _{clicks_esc}_\n"
-        f"• **Уникальные:** _{unique_clicks_esc}_\n\n"
-        f"**✅ Конверсии (подтверждённые):** _{confirmed_count_esc}_\n\n"
-        f"**💵 Доход:** _{income_esc} USD_"
+        f"**📊 Статистика ({period_label})**\n\n"
+        f"**Дата:** _{date_info}_\n\n"
+        f"**Клики:**\n"
+        f"• **Всего:** _{clicks}_\n"
+        f"• **Уникальные:** _{unique_clicks}_\n\n"
+        f"**Конверсии (подтверждённые):** _{confirmed_count}_\n"
+        f"**Доход:** _{income} USD_"
     )
     return message
 
 # ------------------------------
-# Функция форматирования офферов
+# Функция форматирования офферов (оставляем как в рабочей версии)
 # ------------------------------
 async def format_offers(response_json) -> str:
     offers = response_json.get("data", [])
@@ -74,10 +66,7 @@ async def format_offers(response_json) -> str:
         return "⚠️ *Офферы не найдены.*"
     message = "**📈 Топ офферы:**\n\n"
     for offer in offers:
-        offer_id = escape_markdown(str(offer.get('id')), version=2)
-        offer_name = escape_markdown(str(offer.get('name')), version=2)
-        # Экранируем символ '|' вручную
-        message += f"• **ID:** {offer_id} \\| **Название:** {offer_name}\n"
+        message += f"• **ID:** {offer.get('id')} | **Название:** {offer.get('name')}\n"
     return message
 
 # ------------------------------
@@ -92,7 +81,7 @@ async def init_telegram_app():
     logger.debug("Telegram-бот успешно запущен!")
 
 # ------------------------------
-# Обработка постбеков от ПП
+# Обработка постбеков от ПП (оставляем как в рабочей версии)
 # ------------------------------
 async def postback_handler(request: Request):
     try:
@@ -125,7 +114,8 @@ async def postback_handler(request: Request):
     )
 
     try:
-        await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="MarkdownV2")
+        escaped_message = escape_markdown(message, version=2)
+        await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=escaped_message, parse_mode="MarkdownV2")
         logger.debug("Постбек успешно отправлен в Telegram")
     except Exception as e:
         logger.error(f"Ошибка отправки постбека в Telegram: {e}")
@@ -172,7 +162,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
     logger.debug("Отправка основного меню")
     text = "Привет! Выберите команду:"
-    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="MarkdownV2")
+    escaped_text = escape_markdown(text, version=2)
+    await update.message.reply_text(escaped_text, reply_markup=reply_markup, parse_mode="MarkdownV2")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
@@ -188,7 +179,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     now = datetime.now()
 
-    # Обработка ввода даты или диапазона
+    # Первоначально обрабатываем запрос на получение статистики
+    if text == "Получить статистику":
+        period_keyboard = [
+            [KeyboardButton(text="За час"), KeyboardButton(text="За день")],
+            [KeyboardButton(text="За прошлую неделю"), KeyboardButton(text="За дату")],
+            [KeyboardButton(text="За период")],
+            [KeyboardButton(text="Назад")]
+        ]
+        reply_markup = ReplyKeyboardMarkup(period_keyboard, resize_keyboard=True, one_time_keyboard=True)
+        logger.debug("Отправка подменю для выбора периода статистики")
+        await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup)
+        return
+
+    # Обработка ввода даты (для команды "За дату")
     if context.user_data.get("awaiting_date"):
         try:
             date_obj = datetime.strptime(text, "%Y-%m-%d").date()
@@ -213,14 +217,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data = response.json()
                 message = await format_statistics(data, period_label)
             else:
-                err_msg = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-                message = escape_markdown(err_msg, version=2)
+                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
-            message = escape_markdown(f"⚠️ Ошибка запроса: {e}", version=2)
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
+            message = f"⚠️ Ошибка запроса: {e}"
+        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
         context.user_data["awaiting_date"] = False
         return
 
+    # Обработка ввода диапазона дат (для команды "За период")
     if context.user_data.get("awaiting_period"):
         parts = text.split(",")
         if len(parts) != 2:
@@ -276,28 +280,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         period_label = f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
         message = (
             f"**📊 Статистика ({escape_markdown(period_label, version=2)})**\n\n"
-            f"**🖱 Клики:**\n"
+            f"**Клики:**\n"
             f"• **Всего:** _{total_clicks}_\n"
             f"• **Уникальные:** _{total_unique}_\n\n"
-            f"**✅ Конверсии (подтверждённые):** _{total_confirmed}_\n\n"
-            f"**💵 Доход:** _{total_income:.2f} USD_"
+            f"**Конверсии (подтверждённые):** _{total_confirmed}_\n"
+            f"**Доход:** _{total_income:.2f} USD_"
         )
         await update.message.reply_text(message, parse_mode="MarkdownV2")
         context.user_data["awaiting_period"] = False
         return
 
-    if text == "Получить статистику":
-        period_keyboard = [
-            [KeyboardButton(text="За час"), KeyboardButton(text="За день")],
-            [KeyboardButton(text="За прошлую неделю")],
-            [KeyboardButton(text="За дату"), KeyboardButton(text="За период")],
-            [KeyboardButton(text="Назад")]
-        ]
-        reply_markup = ReplyKeyboardMarkup(period_keyboard, resize_keyboard=True, one_time_keyboard=True)
-        logger.debug("Отправка подменю для выбора периода статистики")
-        await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup)
-    
-    elif text == "За час":
+    # Основные варианты выбора периода
+    if text == "За час":
         period_label = "За час"
         current_hour = now.replace(minute=0, second=0, microsecond=0)
         date_from = current_hour.strftime("%Y-%m-%d %H:%M")
@@ -316,11 +310,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data = response.json()
                 message = await format_statistics(data, period_label)
             else:
-                err_msg = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-                message = escape_markdown(err_msg, version=2)
+                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
-            message = escape_markdown(f"⚠️ Ошибка запроса: {e}", version=2)
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
+            message = f"⚠️ Ошибка запроса: {e}"
+        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
     
     elif text == "За день":
         period_label = "За день"
@@ -341,11 +334,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data = response.json()
                 message = await format_statistics(data, period_label)
             else:
-                err_msg = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-                message = escape_markdown(err_msg, version=2)
+                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
-            message = escape_markdown(f"⚠️ Ошибка запроса: {e}", version=2)
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
+            message = f"⚠️ Ошибка запроса: {e}"
+        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
     
     elif text == "За прошлую неделю":
         period_label = "За прошлую неделю (первый день)"
@@ -366,11 +358,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data = response.json()
                 message = await format_statistics(data, period_label)
             else:
-                err_msg = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-                message = escape_markdown(err_msg, version=2)
+                message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
-            message = escape_markdown(f"⚠️ Ошибка запроса: {e}", version=2)
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
+            message = f"⚠️ Ошибка запроса: {e}"
+        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
     
     elif text == "За дату":
         await update.message.reply_text("🗓 Введите дату в формате YYYY-MM-DD:")
@@ -404,9 +395,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Ошибка обработки JSON: {e}")
                 message = "⚠️ Не удалось обработать ответ API."
         else:
-            err_msg = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-            message = escape_markdown(err_msg, version=2)
-        await update.message.reply_text(message, parse_mode="MarkdownV2")
+            message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
+        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
     
     elif text == "🔄 Обновить данные":
         await update.message.reply_text("🔄 Данные обновлены!")
@@ -422,7 +412,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup)
     
     else:
-        await update.message.reply_text("❗ Неизвестная команда. Попробуйте снова.", parse_mode="MarkdownV2")
+        await update.message.reply_text("Неизвестная команда. Попробуйте снова.")
 
 # ------------------------------
 # Регистрация обработчиков Telegram
