@@ -413,5 +413,5 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [KeyboardButton(text="📈 Топ офферы")],
             [KeyboardButton(text="🔄 Обновить данные")]
         ]
-        reply_markup = ReplyKeyboardMarkup(main_keyboard
+        reply_markup = ReplyKeyboardMarkup(main_keyboard)
 
