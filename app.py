@@ -33,7 +33,7 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 def get_main_menu():
-    # Главное меню с кнопками статистики и калькулятора
+    # Главное меню с кнопками: статистика и калькулятор
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(text="📊 Получить статистику")],
@@ -44,6 +44,7 @@ def get_main_menu():
     )
 
 def get_statistics_menu():
+    # Подменю статистики с эмодзи
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(text="📅 За сегодня")],
@@ -55,7 +56,7 @@ def get_statistics_menu():
     )
 
 def get_calculator_menu():
-    # Подменю раздела "Калькулятор" с четырьмя функциями
+    # Подменю калькулятора с четырьмя функциями
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(text="📈 ROI"), KeyboardButton(text="💹 EPC")],
@@ -67,7 +68,7 @@ def get_calculator_menu():
     )
 
 # ------------------------------
-# Функция форматирования статистики согласно API (HTML формат)
+# Функция форматирования статистики (HTML формат)
 # ------------------------------
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
@@ -105,7 +106,7 @@ async def init_telegram_app():
     logger.debug("Telegram-бот успешно запущен!")
 
 # ------------------------------
-# Обработка постбеков от ПП (HTML формат)
+# Обработка постбеков (HTML формат)
 # ------------------------------
 async def postback_handler(request: Request):
     try:
@@ -179,7 +180,7 @@ async def webhook_handler(request: Request):
         return await postback_handler(request)
 
 # ==============================
-# КОНВЕРСАЦИИ ДЛЯ КАЛЬКУЛЯТОРА
+# КОНВЕРСАЦИИ ДЛЯ РАЗДЕЛА "КАЛЬКУЛЯТОР"
 # ==============================
 
 # --- ROI ---
@@ -370,9 +371,9 @@ cpa_conv_handler = ConversationHandler(
     fallbacks=[CommandHandler("cancel", cpa_cancel)]
 )
 
-# ------------------------------
+# ==============================
 # Обработчики команд Telegram (главное меню и универсальный MessageHandler)
-# ------------------------------
+# ==============================
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     main_keyboard = get_main_menu()
     logger.debug("Отправка главного меню")
@@ -384,13 +385,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    # Удаляем входящее сообщение пользователя
     try:
         await update.message.delete()
     except Exception as e:
         logger.debug(f"Не удалось удалить сообщение пользователя: {e}")
 
-    # Если нужно, удаляем предыдущее сообщение бота
+    # Удаляем предыдущее сообщение бота, если оно существует
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
@@ -401,32 +401,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     logger.debug(f"Получено сообщение: {text}")
 
-    # Обработка кнопок главного меню и калькулятора
     if text == "📊 Получить статистику":
         reply_markup = get_statistics_menu()
         sent_msg = await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup, parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
     if text == "🧮 Калькулятор":
-        # Отправляем подменю калькулятора
         reply_markup = get_calculator_menu()
         sent_msg = await update.message.reply_text("Выберите функцию калькулятора:", reply_markup=reply_markup, parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
     if text == "↩️ Назад":
-        # Возвращаемся в главное меню
         reply_markup = get_main_menu()
         sent_msg = await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup, parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
 
-    # Если сообщение не распознано, выводим сообщение об ошибке
     sent_msg = await update.message.reply_text("Неизвестная команда. Попробуйте снова.", parse_mode="HTML", reply_markup=get_main_menu())
     context.user_data["last_bot_message_id"] = sent_msg.message_id
 
-# ------------------------------
+# ==============================
 # Регистрация обработчиков Telegram
-# ------------------------------
+# ==============================
 telegram_app.add_handler(CommandHandler("start", start_command))
 telegram_app.add_handler(roi_conv_handler)
 telegram_app.add_handler(epc_conv_handler)
