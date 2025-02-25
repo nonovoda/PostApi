@@ -195,6 +195,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     logger.debug(f"Получено сообщение: {text}")
 
+    # Заголовки для всех запросов
     headers = {
         "API-KEY": API_KEY,
         "Content-Type": "application/json",
@@ -202,7 +203,54 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     now = datetime.now()
     
-    if text == "Получить статистику":
+    if text == "Тестовый запрос":
+        # Формируем словарь параметров с пустыми значениями
+        params = {
+            "timezone": "",
+            "date_from": "",
+            "date_to": "",
+            "offer_ids": "",
+            "country_codes": "",
+            "sub1": "",
+            "sub2": "",
+            "sub3": "",
+            "sub4": "",
+            "sub5": "",
+            "sub6": "",
+            "sub7": "",
+            "sub8": "",
+            "sub9": "",
+            "sub10": "",
+            "tags": "",
+            "currency_code": ""
+        }
+        full_url = str(httpx.URL(f"{BASE_API_URL}/partner/statistic/common").copy_merge_params(params))
+        logger.debug(f"Полный URL тестового запроса: {full_url}")
+        logger.debug(f"Отправка тестового запроса к {BASE_API_URL}/partner/statistic/common с заголовками: {headers}")
+        start_time = datetime.now()
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
+            elapsed = (datetime.now() - start_time).total_seconds()
+            logger.debug(f"Тестовый запрос выполнен за {elapsed:.2f} сек: {response.status_code} - {response.text}")
+        except httpx.RequestError as exc:
+            logger.error(f"Ошибка тестового запроса к API: {exc}")
+            await update.message.reply_text(f"⚠️ Ошибка тестового запроса: {exc}")
+            return
+
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                message = f"✅ Тестовый запрос выполнен успешно:\n{data}"
+            except Exception as e:
+                logger.error(f"Ошибка обработки JSON в тестовом запросе: {e}")
+                message = "⚠️ Не удалось обработать ответ API тестового запроса."
+        else:
+            message = f"⚠️ Тестовый запрос: Ошибка API {response.status_code}: {response.text}"
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
+    
+    elif text == "Получить статистику":
         period_keyboard = [["За час", "За день"], ["За прошлую неделю"], ["Назад"]]
         reply_markup = ReplyKeyboardMarkup(period_keyboard, resize_keyboard=True, one_time_keyboard=True)
         logger.debug("Отправка подменю для выбора периода статистики")
@@ -294,7 +342,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         main_keyboard = [
             ["Получить статистику"],
             ["📈 Топ офферы"],
-            ["🔄 Обновить данные"]
+            ["🔄 Обновить данные"],
+            ["Тестовый запрос"]
         ]
         reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
         logger.debug("Возврат в главное меню")
