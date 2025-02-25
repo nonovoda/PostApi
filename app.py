@@ -44,13 +44,13 @@ async def format_statistics(response_json, period_label: str) -> str:
     conversions = stat.get("conversions", {})
     confirmed = conversions.get("confirmed", {})
     message = (
-        f"<b>📊 Статистика ({period_label})</b>\n\n"
+                f"<b>📊 Статистика ({period_label})</b>\n\n"
                 f"<b>Клики:</b>\n"
                 f"• <b>Всего:</b> <i>{total_clicks}</i>\n"
                 f"• <b>Уникальные:</b> <i>{total_unique}</i>\n\n"
                 f"<b>Конверсии (подтвержденные):</b> <i>{total_confirmed}</i>\n"
                 f"<b>Доход:</b> <i>{total_income:.2f} USD</i>"
-    )
+            )
     return message
 
 # ------------------------------
