@@ -6,7 +6,6 @@ import httpx
 from fastapi import FastAPI, Request
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from telegram.helpers import escape_markdown
 
 # ------------------------------
 # Конфигурация
@@ -43,26 +42,22 @@ async def format_statistics(response_json, period_label: str) -> str:
     date_info = group_fields[0].get("label") if group_fields else "Не указано"
     clicks = stat.get("click_count", "N/A")
     unique_clicks = stat.get("click_unique_count", "N/A")
-    # Исправлено: добавляем извлечение статистики по регистрациям и депозитам
-    reg = stat.get("conversions", {}).get("registration", {})
-    dep = stat.get("conversions", {}).get("deposit", {})
     confirmed = stat.get("conversions", {}).get("confirmed", {})
+    confirmed_count = confirmed.get("count", "N/A")
+    income = confirmed.get("income", "N/A")
     message = (
         f"**📊 Статистика ({period_label})**\n\n"
         f"**📅 Дата:** _{date_info}_\n\n"
         f"**🖱 Клики:**\n"
         f"• **Всего:** _{clicks}_\n"
         f"• **Уникальные:** _{unique_clicks}_\n\n"
-        f"**✅ Конверсии:**\n"
-        f"• **Регистрация:** _{reg.get('count', 'N/A')}_ (💰 _{reg.get('payout', 'N/A')} USD_)\n"
-        f"• **Депозиты:** _{dep.get('count', 'N/A')}_ (💰 _{dep.get('payout', 'N/A')} USD_)\n\n"
-        f"**💵 Доход:** _{confirmed.get('income', 'N/A')} USD_"
+        f"**✅ Конверсии (подтверждённые):** _{confirmed_count}_\n\n"
+        f"**💵 Доход:** _{income} USD_"
     )
     return message
 
 async def format_offers(response_json) -> str:
     offers = response_json.get("data", [])
-    meta = response_json.get("meta", {})
     if not offers:
         return "⚠️ *Офферы не найдены.*"
     message = "**📈 Топ офферы:**\n\n"
@@ -115,8 +110,7 @@ async def postback_handler(request: Request):
     )
 
     try:
-        escaped_message = escape_markdown(message, version=2)
-        await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=escaped_message, parse_mode="MarkdownV2")
+        await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="MarkdownV2")
         logger.debug("Постбек успешно отправлен в Telegram")
     except Exception as e:
         logger.error(f"Ошибка отправки постбека в Telegram: {e}")
@@ -163,8 +157,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True, one_time_keyboard=False)
     logger.debug("Отправка основного меню")
     text = "Привет! Выберите команду:"
-    escaped_text = escape_markdown(text, version=2)
-    await update.message.reply_text(escaped_text, reply_markup=reply_markup, parse_mode="MarkdownV2")
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="MarkdownV2")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
@@ -189,7 +182,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         period_label = f"За {date_obj.strftime('%Y-%m-%d')}"
         date_str = date_obj.strftime("%Y-%m-%d")
-        date_from = f"{date_str}T00:00:00"
+        date_from = f"{date_str} 00:00"
         date_to = date_from
         params = {
             "group_by": "day",
@@ -208,7 +201,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="MarkdownV2")
         context.user_data["awaiting_date"] = False
         return
 
@@ -228,16 +221,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         total_clicks = 0
         total_unique = 0
-        total_reg_count = 0
-        total_reg_payout = 0.0
-        total_dep_count = 0
-        total_dep_payout = 0.0
+        total_confirmed = 0
         total_income = 0.0
         days_count = 0
         current_date = start_date
         while current_date <= end_date:
             d_str = current_date.strftime("%Y-%m-%d")
-            date_from = f"{d_str}T00:00:00"
+            date_from = f"{d_str} 00:00"
             date_to = date_from
             params = {
                 "group_by": "day",
@@ -258,13 +248,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     stat = data["data"][0]
                     total_clicks += int(stat.get("click_count", 0) or 0)
                     total_unique += int(stat.get("click_unique_count", 0) or 0)
-                    reg = stat.get("conversions", {}).get("registration", {})
-                    dep = stat.get("conversions", {}).get("deposit", {})
-                    total_reg_count += int(reg.get("count", 0) or 0)
-                    total_reg_payout += float(reg.get("payout", 0) or 0)
-                    total_dep_count += int(dep.get("count", 0) or 0)
-                    total_dep_payout += float(dep.get("payout", 0) or 0)
                     confirmed = stat.get("conversions", {}).get("confirmed", {})
+                    total_confirmed += int(confirmed.get("count", 0) or 0)
                     total_income += float(confirmed.get("income", 0) or 0)
                     days_count += 1
             current_date += timedelta(days=1)
@@ -278,12 +263,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"**🖱 Клики:**\n"
             f"• **Всего:** _{total_clicks}_\n"
             f"• **Уникальные:** _{total_unique}_\n\n"
-            f"**✅ Конверсии:**\n"
-            f"• **Регистрация:** _{total_reg_count}_ (💰 _{total_reg_payout:.2f} USD_)\n"
-            f"• **Депозиты:** _{total_dep_count}_ (💰 _{total_dep_payout:.2f} USD_)\n\n"
+            f"**✅ Конверсии (подтверждённые):** _{total_confirmed}_\n\n"
             f"**💵 Доход:** _{total_income:.2f} USD_"
         )
-        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="MarkdownV2")
         context.user_data["awaiting_period"] = False
         return
 
@@ -301,8 +284,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "За час":
         period_label = "За час"
         current_hour = now.replace(minute=0, second=0, microsecond=0)
-        date_from = current_hour.strftime("%Y-%m-%dT%H:%M:%S")
-        date_to = date_from  # API требует, чтобы даты были идентичны
+        date_from = current_hour.strftime("%Y-%m-%d %H:%M")
+        date_to = date_from  # API требует равенства дат
         params = {
             "group_by": "hour",
             "timezone": "Europe/Moscow",
@@ -320,12 +303,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "За день":
         period_label = "За день"
         selected_date = now.strftime("%Y-%m-%d")
-        date_from = f"{selected_date}T00:00:00"
+        date_from = f"{selected_date} 00:00"
         date_to = date_from  # для группировки по дню
         params = {
             "group_by": "day",
@@ -344,12 +327,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "За прошлую неделю":
         period_label = "За прошлую неделю (первый день)"
         last_week_start = (now - timedelta(days=now.weekday() + 7)).replace(hour=0, minute=0, second=0, microsecond=0)
-        date_from = last_week_start.strftime("%Y-%m-%dT%H:%M:%S")
+        date_from = last_week_start.strftime("%Y-%m-%d %H:%M")
         date_to = date_from  # для группировки по дню
         params = {
             "group_by": "day",
@@ -368,7 +351,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
         except Exception as e:
             message = f"⚠️ Ошибка запроса: {e}"
-        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "За дату":
         await update.message.reply_text("🗓 Введите дату в формате YYYY-MM-DD:")
@@ -403,7 +386,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message = "⚠️ Не удалось обработать ответ API."
         else:
             message = f"⚠️ Ошибка API {response.status_code}: {response.text}"
-        await update.message.reply_text(escape_markdown(message, version=2), parse_mode="MarkdownV2")
+        await update.message.reply_text(message, parse_mode="MarkdownV2")
     
     elif text == "🔄 Обновить данные":
         await update.message.reply_text("🔄 Данные обновлены!")
@@ -419,7 +402,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup)
     
     else:
-        await update.message.reply_text("❗ Неизвестная команда. Попробуйте снова.")
+        await update.message.reply_text("❗ Неизвестная команда. Попробуйте снова.", parse_mode="MarkdownV2")
 
 # ------------------------------
 # Регистрация обработчиков Telegram
