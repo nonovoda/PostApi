@@ -33,10 +33,11 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 def get_main_menu():
+    # Главное меню с эмодзи для кнопок: статистика и ROI-калькулятор
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(text="Получить статистику")],
-            [KeyboardButton(text="/roi")]
+            [KeyboardButton(text="📊 Получить статистику")],
+            [KeyboardButton(text="💰 Калькулятор ROI")]  # Кнопка отправляет текст, который надо обработать
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -45,9 +46,9 @@ def get_main_menu():
 def get_statistics_menu():
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(text="За сегодня")],
-            [KeyboardButton(text="За период"), KeyboardButton(text="За месяц")],
-            [KeyboardButton(text="Назад")]
+            [KeyboardButton(text="📅 За сегодня")],
+            [KeyboardButton(text="🗓 За период"), KeyboardButton(text="📆 За месяц")],
+            [KeyboardButton(text="↩️ Назад")]
         ],
         resize_keyboard=True,
         one_time_keyboard=True
@@ -183,20 +184,13 @@ ROI_INVESTMENT, ROI_INCOME = range(2)
 # Функции для калькулятора ROI
 # ------------------------------
 async def roi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Удаляем предыдущий ответ бота, если он есть
-    last_msg_id = context.user_data.get("last_bot_message_id")
-    if last_msg_id:
-        try:
-            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
-        except Exception as e:
-            logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
+    # Здесь мы не удаляем предыдущее сообщение, т.к. ConversationHandler запустит диалог по команде /roi
     await update.message.reply_text("Введите сумму инвестиций:")
     return ROI_INVESTMENT
 
 async def roi_investment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     try:
-        # Принимаем и целые, и дробные числа
         investment = float(text)
     except ValueError:
         await update.message.reply_text("Неверный формат числа. Введите сумму инвестиций числом:")
@@ -229,6 +223,7 @@ async def roi_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Обработчики команд Telegram
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Удаляем предыдущее сообщение бота, если оно есть
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
@@ -260,8 +255,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     logger.debug(f"Получено сообщение: {text}")
 
-    # Если пользователь нажал кнопку "Калькулятор ROI", запускаем команду /roi
-    if text == "Калькулятор ROI":
+    # Если пользователь нажал кнопку "💰 Калькулятор ROI", инициируем команду /roi
+    if text == "💰 Калькулятор ROI" or text == "/roi":
+        # Отправляем команду /roi, чтобы запустить ConversationHandler
         return await roi_command(update, context)
 
     headers = {
@@ -271,7 +267,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     now = datetime.now()
 
-    if text == "Получить статистику":
+    if text == "📊 Получить статистику":
         reply_markup = get_statistics_menu()
         logger.debug("Отправка подменю для выбора периода статистики")
         sent_msg = await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup, parse_mode="HTML")
@@ -350,7 +346,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["awaiting_period"] = False
         return
 
-    if text == "За сегодня":
+    if text == "📅 За сегодня":
         period_label = "За сегодня"
         selected_date = now.strftime("%Y-%m-%d")
         date_from = f"{selected_date} 00:00"
@@ -375,7 +371,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
         context.user_data["last_bot_message_id"] = sent_msg.message_id
 
-    elif text == "За месяц":
+    elif text == "📆 За месяц":
         end_date = now.date()
         start_date = end_date - timedelta(days=30)
         period_label = f"За {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
@@ -424,12 +420,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
         context.user_data["last_bot_message_id"] = sent_msg.message_id
 
-    elif text == "За период":
-        sent_msg = await update.message.reply_text("🗓 Введите диапазон дат в формате YYYY-MM-DD,YYYY-MM-DD:", parse_mode="HTML")
-        context.user_data["last_bot_message_id"] = sent_msg.message_id
-        context.user_data["awaiting_period"] = True
-
-    elif text == "Назад":
+    elif text == "↩️ Назад":
         sent_msg = await update.message.reply_text("Возврат в главное меню:", reply_markup=get_main_menu(), parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
 
@@ -441,6 +432,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Регистрация обработчиков Telegram
 # ------------------------------
 telegram_app.add_handler(CommandHandler("start", start_command))
+telegram_app.add_handler(CommandHandler("roi", roi_command))
+telegram_app.add_handler(roi_conv_handler)
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
 
 # Регистрируем ConversationHandler для ROI-калькулятора
@@ -462,4 +455,3 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-
