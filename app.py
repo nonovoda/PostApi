@@ -32,7 +32,7 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 def get_main_menu():
-    # Главное меню с тематическими эмодзи
+    # Главное меню с кнопками "Получить статистику" и "⚙️ Настройка"
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(text="📊 Получить статистику")],
@@ -43,7 +43,7 @@ def get_main_menu():
     )
 
 def get_statistics_menu():
-    # Подменю статистики с эмодзи
+    # Подменю для выбора периода статистики с эмодзи
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(text="📅 За сегодня")],
@@ -55,8 +55,10 @@ def get_statistics_menu():
     )
 
 def get_pp_inline():
-    # Inline-кнопка для перехода в ПП кабинет
-    return InlineKeyboardMarkup([[InlineKeyboardButton(text="🔗 ПП кабинет", url="https://cabinet.4rabetpartner.com/statistics")]])
+    # Inline-кнопка для перехода на сайт ПП
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(text="🔗 ПП кабинет", url="https://cabinet.4rabetpartner.com/statistics")]]
+    )
 
 # ------------------------------
 # Функция форматирования статистики согласно API (HTML формат)
@@ -97,16 +99,20 @@ async def init_telegram_app():
     logger.debug("Telegram-бот успешно запущен!")
 
 # ------------------------------
-# Обработка постбеков (HTML формат)
+# Обработка постбеков (GET и POST)
 # ------------------------------
+@app.api_route("/postback", methods=["GET", "POST"])
 async def postback_handler(request: Request):
-    try:
-        data = await request.json()
-    except Exception as e:
-        logger.error(f"Ошибка при разборе JSON постбека: {e}")
-        return {"error": "Некорректный JSON"}, 400
+    if request.method == "GET":
+        data = dict(request.query_params)
+    else:
+        try:
+            data = await request.json()
+        except Exception as e:
+            logger.error(f"Ошибка при разборе JSON постбека: {e}")
+            return {"error": "Некорректный JSON"}, 400
 
-    logger.debug(f"Получен постбек: {data}")
+    logger.debug(f"Получены данные постбека: {data}")
     offer_id = data.get("offer_id", "N/A")
     sub_id2 = data.get("sub_id2", "N/A")
     goal = data.get("goal", "N/A")
@@ -130,7 +136,6 @@ async def postback_handler(request: Request):
     )
 
     try:
-        # При отправке постбека прикрепляем inline-кнопку для перехода на сайт ПП
         await telegram_app.bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
             text=message,
@@ -145,7 +150,7 @@ async def postback_handler(request: Request):
     return {"status": "ok"}
 
 # ------------------------------
-# Единый эндпоинт для входящих запросов (Telegram и постбеки)
+# Единый эндпоинт для входящих запросов (Telegram и постбека)
 # ------------------------------
 @app.post("/webhook")
 async def webhook_handler(request: Request):
@@ -170,6 +175,24 @@ async def webhook_handler(request: Request):
             return {"error": "Ошибка сервера"}, 500
     else:
         return await postback_handler(request)
+
+# ------------------------------
+# Обработчик команды /start
+# ------------------------------
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Задержка 1 секунда перед удалением предыдущего сообщения
+    await asyncio.sleep(1)
+    last_msg_id = context.user_data.get("last_bot_message_id")
+    if last_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
+        except Exception as e:
+            logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
+    main_keyboard = get_main_menu()
+    logger.debug("Отправка главного меню")
+    text = "Привет! Выберите команду:"
+    sent_msg = await update.message.reply_text(text, reply_markup=main_keyboard, parse_mode="HTML")
+    context.user_data["last_bot_message_id"] = sent_msg.message_id
 
 # ------------------------------
 # Обработчик кнопок (универсальный MessageHandler)
@@ -275,7 +298,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ <b>Подтвержденные:</b> <i>{total_confirmed}</i>\n"
             f"💰 <b>Доход:</b> <i>{total_income:.2f} USD</i>"
         )
-        # При отправке статистики прикрепляем inline кнопку для перехода в ПП кабинет
         sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_pp_inline())
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         context.user_data["awaiting_period"] = False
@@ -359,12 +381,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
 
+    # Если сообщение не распознано, отправляем сообщение об ошибке
     sent_msg = await update.message.reply_text("Неизвестная команда. Попробуйте снова.", parse_mode="HTML", reply_markup=get_main_menu())
     context.user_data["last_bot_message_id"] = sent_msg.message_id
 
 # ------------------------------
 # Регистрация обработчиков Telegram
 # ------------------------------
+telegram_app.add_handler(CommandHandler("start", start_command))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
 
 # ------------------------------
