@@ -170,7 +170,7 @@ async def webhook_handler(request: Request):
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Добавляем задержку 1 секунда перед удалением предыдущего сообщения
-    await asyncio.sleep(1)
+    await asyncio.sleep(0.3)
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
         try:
