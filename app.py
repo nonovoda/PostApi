@@ -32,6 +32,7 @@ app = FastAPI()
 # ------------------------------
 # Функция форматирования статистики согласно API
 # ------------------------------
+# Функция форматирования статистики согласно API
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
     if not data:
@@ -44,14 +45,22 @@ async def format_statistics(response_json, period_label: str) -> str:
     conversions = stat.get("conversions", {})
     confirmed = conversions.get("confirmed", {})
 
+    # Экранируем динамические данные
+    period_label_esc = escape_markdown(period_label, version=2)
+    date_info_esc = escape_markdown(date_info, version=2)
+    clicks_esc = escape_markdown(str(clicks), version=2)
+    unique_clicks_esc = escape_markdown(str(unique_clicks), version=2)
+    confirmed_count_esc = escape_markdown(str(confirmed.get("count", "N/A")), version=2)
+    confirmed_payout_esc = escape_markdown(str(confirmed.get("payout", "N/A")), version=2)
+
     message = (
-        f"**📊 Статистика ({period_label})**\n\n"
-        f"**Дата:** _{date_info}_\n\n"
+        f"**📊 Статистика ({period_label_esc})**\n\n"
+        f"**Дата:** _{date_info_esc}_\n\n"
         f"**Клики:**\n"
-        f"• **Всего:** _{clicks}_\n"
-        f"• **Уникальные:** _{unique_clicks}_\n\n"
+        f"• **Всего:** _{clicks_esc}_\n"
+        f"• **Уникальные:** _{unique_clicks_esc}_\n\n"
         f"**Конверсии:**\n"
-        f"• **Подтвержденные:** _{confirmed.get('count', 'N/A')}_ (💰 _{confirmed.get('payout', 'N/A')} USD_)\n"
+        f"• **Подтвержденные:** _{confirmed_count_esc}_ (💰 _{confirmed_payout_esc} USD_)\n"
     )
     return message
 
