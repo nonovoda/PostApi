@@ -43,15 +43,14 @@ async def format_statistics(response_json, period_label: str) -> str:
     unique_clicks = stat.get("click_unique_count", "N/A")
     conversions = stat.get("conversions", {})
     confirmed = conversions.get("confirmed", {})
-    
    message = (
-    f"<b>📊 Статистика ({period_label})</b>\n\n"
-    f"<b>Дата:</b> <i>{date_info}</i>\n\n"
-    f"<b>Клики:</b>\n"
-    f"• <b>Всего:</b> <i>{clicks}</i>\n"
-    f"• <b>Уникальные:</b> <i>{unique_clicks}</i>\n\n"
-    f"<b>Конверсии:</b>\n"
-    f"<b>✅ Подтвержденные:</b> <i>{confirmed.get('count', 'N/A')}</i>\n"
+        f"<b>📊 Статистика ({period_label})</b>\n\n"
+        f"<b>Дата:</b> <i>{date_info}</i>\n\n"
+        f"<b>Клики:</b>\n"
+        f"• <b>Всего:</b> <i>{clicks}</i>\n"
+        f"• <b>Уникальные:</b> <i>{unique_clicks}</i>\n\n"
+        f"<b>Конверсии:</b>\n"
+        f"<b>✅ Подтвержденные:</b> <i>{confirmed.get('count', 'N/A')}</i>\n"
     f"<b>💰 Доход:</b> <i>{confirmed.get('payout', 'N/A')} USD</i>\n"
 )
     return message
