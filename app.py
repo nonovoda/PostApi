@@ -1,16 +1,16 @@
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import os
 import logging
 import asyncio
 from datetime import datetime, timedelta
 import httpx
 from fastapi import FastAPI, Request
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ------------------------------
 # Конфигурация
 # ------------------------------
-API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
+DEFAULT_API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
 BASE_API_URL = "https://4rabet.api.alanbase.com/v1"
@@ -22,9 +22,7 @@ logging.basicConfig(
     level=logging.DEBUG
 )
 logger = logging.getLogger(__name__)
-logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API_KEY != 'ВАШ_API_КЛЮЧ' else API_KEY}, "
-             f"TELEGRAM_TOKEN = {TELEGRAM_TOKEN[:4]+'****' if TELEGRAM_TOKEN != 'ВАШ_ТОКЕН' else TELEGRAM_TOKEN}, "
-             f"TELEGRAM_CHAT_ID = {TELEGRAM_CHAT_ID}")
+logger.debug(f"Конфигурация: DEFAULT_API_KEY = {DEFAULT_API_KEY}, TELEGRAM_TOKEN = {TELEGRAM_TOKEN}, TELEGRAM_CHAT_ID = {TELEGRAM_CHAT_ID}")
 
 # ------------------------------
 # Создание экземпляра FastAPI
@@ -32,17 +30,17 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 def get_main_menu():
-    # Главное меню содержит только кнопку статистики
+    # Главное меню с кнопками "Получить статистику" и "⚙️ Настройка"
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(text="📊 Получить статистику")]
+            [KeyboardButton(text="📊 Получить статистику")],
+            [KeyboardButton(text="⚙️ Настройка")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
     )
 
 def get_statistics_menu():
-    # Подменю для выбора периода статистики
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(text="📅 За сегодня")],
@@ -54,7 +52,7 @@ def get_statistics_menu():
     )
 
 # ------------------------------
-# Функция форматирования статистики согласно API (HTML формат)
+# Функция форматирования статистики (HTML формат)
 # ------------------------------
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
@@ -67,7 +65,6 @@ async def format_statistics(response_json, period_label: str) -> str:
     unique_clicks = stat.get("click_unique_count", "N/A")
     conversions = stat.get("conversions", {})
     confirmed = conversions.get("confirmed", {})
-
     message = (
         f"<b>📊 Статистика ({period_label})</b>\n\n"
         f"<b>Дата:</b> <i>{date_info}</i>\n\n"
@@ -100,30 +97,11 @@ async def postback_handler(request: Request):
     except Exception as e:
         logger.error(f"Ошибка при разборе JSON постбека: {e}")
         return {"error": "Некорректный JSON"}, 400
-
     logger.debug(f"Получен постбек: {data}")
-    offer_id = data.get("offer_id", "N/A")
-    sub_id2 = data.get("sub_id2", "N/A")
-    goal = data.get("goal", "N/A")
-    revenue = data.get("revenue", "N/A")
-    currency = data.get("currency", "USD")
-    status = data.get("status", "N/A")
-    sub_id4 = data.get("sub_id4", "N/A")
-    sub_id5 = data.get("sub_id5", "N/A")
-    conversion_date = data.get("conversion_date", "N/A")
-
     message = (
         "🔔 <b>Новая конверсия!</b>\n\n"
-        f"<b>📌 Оффер:</b> <i>{offer_id}</i>\n"
-        f"<b>🛠 Подход:</b> <i>{sub_id2}</i>\n"
-        f"<b>📊 Тип конверсии:</b> <i>{goal}</i>\n"
-        f"<b>💰 Выплата:</b> <i>{revenue} {currency}</i>\n"
-        f"<b>⚙️ Статус конверсии:</b> <i>{status}</i>\n"
-        f"<b>🎯 Кампания:</b> <i>{sub_id4}</i>\n"
-        f"<b>🎯 Адсет:</b> <i>{sub_id5}</i>\n"
-        f"<b>⏰ Время конверсии:</b> <i>{conversion_date}</i>"
+        f"<b>📌 Оффер:</b> {data.get('offer_id', 'N/A')}\n"
     )
-
     try:
         await telegram_app.bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
@@ -135,7 +113,6 @@ async def postback_handler(request: Request):
     except Exception as e:
         logger.error(f"Ошибка отправки постбека в Telegram: {e}")
         return {"error": "Не удалось отправить сообщение"}, 500
-
     return {"status": "ok"}
 
 # ------------------------------
@@ -150,7 +127,6 @@ async def webhook_handler(request: Request):
     except Exception as e:
         logger.error(f"Ошибка при разборе JSON: {e}")
         return {"error": "Некорректный JSON"}, 400
-
     if "update_id" in data:
         update = Update.de_json(data, telegram_app.bot)
         if not telegram_app.running:
@@ -166,35 +142,27 @@ async def webhook_handler(request: Request):
         return await postback_handler(request)
 
 # ------------------------------
-# Обработчики команд Telegram
+# Основные обработчики команд
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Добавляем задержку 1 секунда перед удалением предыдущего сообщения
-    await asyncio.sleep(0.3)
-    last_msg_id = context.user_data.get("last_bot_message_id")
-    if last_msg_id:
-        try:
-            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
-        except Exception as e:
-            logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
     main_keyboard = get_main_menu()
-    logger.debug("Отправка главного меню")
     text = "Привет! Выберите команду:"
     sent_msg = await update.message.reply_text(text, reply_markup=main_keyboard, parse_mode="HTML")
     context.user_data["last_bot_message_id"] = sent_msg.message_id
+    # Дополнительно отправляем inline-кнопку для перехода на сайт ПП
+    inline_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 ПП кабинет", url="https://cabinet.4rabetpartner.com/statistics")]])
+    await update.message.reply_text("Перейдите в ПП кабинет:", reply_markup=inline_kb)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
-
-    # Добавляем задержку 1 секунда перед удалением входящего сообщения
+    # Задержка 1 секунда перед удалением входящего сообщения
     await asyncio.sleep(1)
     try:
         await update.message.delete()
     except Exception as e:
         logger.debug(f"Не удалось удалить сообщение пользователя: {e}")
-
-    # Добавляем задержку 1 секунда перед удалением предыдущего сообщения бота
+    # Задержка 1 секунда перед удалением предыдущего сообщения бота
     await asyncio.sleep(1)
     last_msg_id = context.user_data.get("last_bot_message_id")
     if last_msg_id:
@@ -202,13 +170,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
         except Exception as e:
             logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
-
     text = update.message.text.strip()
     logger.debug(f"Получено сообщение: {text}")
-
-    # Далее идут проверки текста кнопок и обработка команды...
-
-
     if text == "📊 Получить статистику":
         reply_markup = get_statistics_menu()
         sent_msg = await update.message.reply_text("Выберите период статистики:", reply_markup=reply_markup, parse_mode="HTML")
@@ -219,13 +182,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sent_msg = await update.message.reply_text("Возврат в главное меню:", reply_markup=reply_markup, parse_mode="HTML")
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
-
     # Обработка подменю статистики
     if text == "📅 За сегодня":
         period_label = "За сегодня"
         selected_date = datetime.now().strftime("%Y-%m-%d")
         date_from = f"{selected_date} 00:00"
         date_to = f"{selected_date} 00:00"
+        headers = {"API-KEY": DEFAULT_API_KEY, "Content-Type": "application/json"}
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
@@ -235,7 +198,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY": API_KEY, "Content-Type": "application/json"}, params=params)
+                response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
             if response.status_code == 200:
                 data = response.json()
                 message = await format_statistics(data, period_label)
@@ -255,6 +218,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         end_date = now.date()
         start_date = end_date - timedelta(days=30)
         period_label = f"За {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
+        headers = {"API-KEY": DEFAULT_API_KEY, "Content-Type": "application/json"}
         total_clicks = total_unique = total_confirmed = 0
         total_income = 0.0
         days_count = 0
@@ -272,7 +236,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
-                    response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY": API_KEY, "Content-Type": "application/json"}, params=params)
+                    response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers=headers, params=params)
             except Exception as e:
                 await update.message.reply_text(f"⚠️ Ошибка запроса: {e}", parse_mode="HTML")
                 return
@@ -302,7 +266,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sent_msg = await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu())
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
-
     if context.user_data.get("awaiting_period"):
         parts = text.split(",")
         if len(parts) != 2:
@@ -337,7 +300,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
-                    response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY": API_KEY, "Content-Type": "application/json"}, params=params)
+                    response = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY": DEFAULT_API_KEY, "Content-Type": "application/json"}, params=params)
             except Exception as e:
                 sent_msg = await update.message.reply_text(f"⚠️ Ошибка запроса: {e}", parse_mode="HTML")
                 context.user_data["last_bot_message_id"] = sent_msg.message_id
@@ -372,8 +335,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         context.user_data["awaiting_period"] = False
         return
-
-    # Если сообщение не распознано, отправляем ошибку
     sent_msg = await update.message.reply_text("Неизвестная команда. Попробуйте снова.", parse_mode="HTML", reply_markup=get_main_menu())
     context.user_data["last_bot_message_id"] = sent_msg.message_id
 
@@ -381,6 +342,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Регистрация обработчиков Telegram
 # ------------------------------
 telegram_app.add_handler(CommandHandler("start", start_command))
+telegram_app.add_handler(CommandHandler("setup", setup_command))
+telegram_app.add_handler(setup_conv_handler)
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
 
 # ------------------------------
