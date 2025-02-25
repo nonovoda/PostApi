@@ -30,7 +30,7 @@ logger.debug(f"Конфигурация: PP_API_KEY = {API_KEY[:4]+'****' if API
 app = FastAPI()
 
 def get_main_menu():
-    # Главное меню всегда содержит только кнопку "Получить статистику"
+    # Главное меню всегда содержит кнопку "Получить статистику"
     return ReplyKeyboardMarkup(
         [[KeyboardButton(text="Получить статистику")]],
         resize_keyboard=True,
@@ -51,6 +51,7 @@ def get_statistics_menu():
 
 # ------------------------------
 # Функция форматирования статистики согласно API (HTML формат)
+# Для одиночного запроса (например, "За сегодня")
 # ------------------------------
 async def format_statistics(response_json, period_label: str) -> str:
     data = response_json.get("data", [])
@@ -71,21 +72,9 @@ async def format_statistics(response_json, period_label: str) -> str:
         f"• <b>Всего:</b> <i>{clicks}</i>\n"
         f"• <b>Уникальные:</b> <i>{unique_clicks}</i>\n\n"
         f"<b>Конверсии:</b>\n"
-        f"✅ <b>Подтвержденные:</b> <i>{confirmed.get('count', 'N/A')}</i>\n"
-        f"💰 <b>Доход:</b> <i>{confirmed.get('payout', 'N/A')} USD</i>\n"
+        f"<b>✅ Подтвержденные:</b> <i>{confirmed.get('count', 'N/A')}</i>\n"
+        f"<b>💰 Доход:</b> <i>{confirmed.get('payout', 'N/A')} USD</i>\n"
     )
-    return message
-
-# ------------------------------
-# Функция форматирования офферов (HTML формат)
-# ------------------------------
-async def format_offers(response_json) -> str:
-    offers = response_json.get("data", [])
-    if not offers:
-        return "⚠️ <i>Офферы не найдены.</i>"
-    message = "<b>📈 Топ офферы:</b>\n\n"
-    for offer in offers:
-        message += f"• <b>ID:</b> {offer.get('id')} \\| <b>Название:</b> {offer.get('name')}\n"
     return message
 
 # ------------------------------
@@ -200,7 +189,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Content-Type": "application/json",
         "User-Agent": "TelegramBot/1.0 (compatible; Alanbase API integration)"
     }
-    now = datetime.now()  # Можно заменить на datetime.now(ZoneInfo("Europe/Moscow")) при необходимости
+    now = datetime.now()  # Если требуется, можно использовать ZoneInfo("Europe/Moscow")
 
     if text == "Получить статистику":
         reply_markup = get_statistics_menu()
@@ -230,7 +219,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         while current_date <= end_date:
             d_str = current_date.strftime("%Y-%m-%d")
             date_from = f"{d_str} 00:00"
-            date_to = date_from  # Для группировки по дню
+            date_to = date_from
             params = {
                 "group_by": "day",
                 "timezone": "Europe/Moscow",
@@ -256,7 +245,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     days_count += 1
             current_date += timedelta(days=1)
         if days_count == 0:
-            await update.message.reply_text("⚠️ Статистика не найдена за указанный период.", parse_mode="HTML")
+            await update.message.reply_text("⚠️ Статистика не найдена за указанный период.", parse_mode="HTML", reply_markup=get_main_menu())
             context.user_data["awaiting_period"] = False
             return
         period_label = f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}"
@@ -278,7 +267,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         period_label = "За сегодня"
         selected_date = now.strftime("%Y-%m-%d")
         date_from = f"{selected_date} 00:00"
-        date_to = f"{selected_date} 00:00"  # Для группировки по дню должны совпадать
+        date_to = f"{selected_date} 00:00"
         params = {
             "group_by": "day",
             "timezone": "Europe/Moscow",
@@ -309,7 +298,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         while current_date <= end_date:
             d_str = current_date.strftime("%Y-%m-%d")
             date_from = f"{d_str} 00:00"
-            date_to = date_from  # Для группировки по дню
+            date_to = date_from
             params = {
                 "group_by": "day",
                 "timezone": "Europe/Moscow",
@@ -371,3 +360,4 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
