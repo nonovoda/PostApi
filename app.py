@@ -417,6 +417,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["last_bot_message_id"] = sent_msg.message_id
         return
 
+    # Обработка подменю статистики с эмодзи
+    if text == "📅 За сегодня":
+        # Ваш код для обработки статистики за сегодня
+        period_label = "За сегодня"
+        # ...
+        # (код запроса статистики за сегодня)
+        # После вычисления статистики отправляем результат
+        sent_msg = await update.message.reply_text("Статистика за сегодня: ...", parse_mode="HTML", reply_markup=get_main_menu())
+        context.user_data["last_bot_message_id"] = sent_msg.message_id
+        return
+    if text == "🗓 За период":
+        await update.message.reply_text("🗓 Введите диапазон дат в формате YYYY-MM-DD,YYYY-MM-DD:", parse_mode="HTML")
+        context.user_data["awaiting_period"] = True
+        return
+    if text == "📆 За месяц":
+        # Ваш код для обработки статистики за месяц
+        period_label = "За месяц"
+        # ...
+        sent_msg = await update.message.reply_text("Статистика за месяц: ...", parse_mode="HTML", reply_markup=get_main_menu())
+        context.user_data["last_bot_message_id"] = sent_msg.message_id
+        return
+
+    # Если сообщение не соответствует ни одному из известных вариантов
     sent_msg = await update.message.reply_text("Неизвестная команда. Попробуйте снова.", parse_mode="HTML", reply_markup=get_main_menu())
     context.user_data["last_bot_message_id"] = sent_msg.message_id
 
