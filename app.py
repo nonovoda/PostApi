@@ -3,100 +3,120 @@ import logging
 import asyncio
 from datetime import datetime, timedelta
 import httpx
+
 from fastapi import FastAPI, Request
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
-    KeyboardButton
+    KeyboardButton,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
 )
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
     ContextTypes
 )
 
+# ------------------------------
+# Конфигурация
+# ------------------------------
 API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ВАШ_CHAT_ID")
 BASE_API_URL = "https://4rabet.api.alanbase.com/v1"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-bot.onrender.com/webhook")
 PORT = int(os.environ.get("PORT", 8000))
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+# ------------------------------
+# Создание экземпляра FastAPI
+# ------------------------------
 app = FastAPI()
-telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 
 # ------------------------------
-# Меню
+# Главное меню (Reply-кнопки)
 # ------------------------------
 def get_main_menu():
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(text="📊 Получить статистику"), KeyboardButton(text="ЛК ПП")],
+            [KeyboardButton("📊 Получить статистику"), KeyboardButton("ЛК ПП")],
+            [KeyboardButton("⬅️ Назад")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
     )
 
-def get_statistics_menu():
-    return ReplyKeyboardMarkup(
-        [
-            [KeyboardButton(text="📅 За сегодня")],
-            [KeyboardButton(text="🗓 За период"), KeyboardButton(text="📆 За месяц")],
-            [KeyboardButton(text="↩️ Назад")]
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=True
+# ------------------------------
+# Функция форматирования статистики (common)
+# ------------------------------
+async def format_common_stats(data_json, period_label: str) -> str:
+    arr = data_json.get("data", [])
+    if not arr:
+        return f"⚠️ Нет статистики ({period_label})."
+    st = arr[0]
+    gf = st.get("group_fields", [])
+    date_info = gf[0].get("label") if gf else "N/A"
+    clicks = st.get("click_count", 0)
+    unique_clicks = st.get("click_unique_count", 0)
+    conf = st.get("conversions", {}).get("confirmed", {})
+    count_conf = conf.get("count", 0)
+    payout_conf = conf.get("payout", 0)
+
+    msg = (
+        f"<b>📊 Статистика ({period_label})</b>\n\n"
+        f"🗓 Даты: <i>{date_info}</i>\n\n"
+        f"👀 Клики: <b>{clicks}</b> (уник: {unique_clicks})\n\n"
+        f"✅ Подтвержденные: <b>{count_conf}</b>\n"
+        f"💰 Доход: <b>{payout_conf} USD</b>\n"
     )
+    return msg
 
 # ------------------------------
-# Общая функция форматирования
+# Запрос /common
 # ------------------------------
-async def format_common_stats(resp_json, period_label: str) -> str:
-    # resp_json – результат /partner/statistic/common
-    data = resp_json.get("data", [])
-    if not data:
-        return f"⚠️ Нет общей статистики ({period_label})."
-
-    stat = data[0]
-    group_fields = stat.get("group_fields", [])
-    date_info = group_fields[0].get("label") if group_fields else "N/A"
-    clicks = stat.get("click_count", 0)
-    unique_clicks = stat.get("click_unique_count", 0)
-    conversions = stat.get("conversions", {}).get("confirmed", {})
-    confirmed_count = conversions.get("count", 0)
-    confirmed_payout = conversions.get("payout", 0)
-
-    txt = (
-        f"<b>📊 Общая статистика ({period_label})</b>\n\n"
-        f"🗓 <b>Дата(ы):</b> <i>{date_info}</i>\n"
-        f"👁 <b>Клики:</b> <i>{clicks}</i> (уник: {unique_clicks})\n"
-        f"✅ <b>Подтверждённые конверсии:</b> <i>{confirmed_count}</i>\n"
-        f"💰 <b>Сумма выплат:</b> <i>{confirmed_payout} USD</i>\n"
-    )
-    return txt
-
-# ------------------------------
-# Суммарная детализация по целям
-# ------------------------------
-async def get_goals_detail(date_from: str, date_to: str) -> str:
+async def get_common_data(date_from: str, date_to: str):
     """
-    Делаем запрос /partner/statistic/conversions с goal_keys[]=registration, ftd, bet, rdeposit
-    Сгруппируем и вернем строку формата:
-    Registration: X шт., payout=Y
-    FTD: ...
+    Делает запрос /partner/statistic/common, возвращает (ok, data | error_str).
     """
-    # Подготовим параметры
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{BASE_API_URL}/partner/statistic/common",
+                headers={"API-KEY": API_KEY},
+                params={
+                    "group_by": "day",
+                    "timezone": "Europe/Moscow",
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "currency_code": "USD"
+                }
+            )
+        if resp.status_code == 200:
+            return True, resp.json()
+        else:
+            return False, f"⚠️ Ошибка /common: {resp.status_code}, {resp.text}"
+    except Exception as e:
+        return False, f"⚠️ Ошибка запроса: {e}"
+
+# ------------------------------
+# Суммарная детализация по 4 целям
+# ------------------------------
+async def get_goals_detail(date_from: str, date_to: str):
+    """
+    Суммируем конверсии/payout по goal_keys[]= registration, ftd, bet, rdeposit
+    """
     base_params = [
         ("timezone", "Europe/Moscow"),
         ("date_from", date_from),
         ("date_to", date_to),
-        ("per_page", "500"),  # запас
+        ("per_page", "500"),
     ]
-    # Добавляем все нужные ключи
     for g in ["registration", "ftd", "bet", "rdeposit"]:
         base_params.append(("goal_keys[]", g))
 
@@ -104,15 +124,17 @@ async def get_goals_detail(date_from: str, date_to: str) -> str:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
                 f"{BASE_API_URL}/partner/statistic/conversions",
-                headers={"API-KEY": API_KEY, "Content-Type": "application/json"},
+                headers={"API-KEY": API_KEY},
                 params=base_params
             )
         if resp.status_code != 200:
-            return f"⚠️ Ошибка детализации (goals): {resp.status_code} {resp.text}"
+            return f"⚠️ Ошибка детализации: {resp.status_code}, {resp.text}"
 
         data = resp.json().get("data", [])
+        if not data:
+            return "❗ Нет конверсий по этим целям."
+
         # Группируем
-        # Пример: { 'registration': {'count': 2, 'payout': 10}, 'ftd': {...}, ... }
         goals_map = {
             "registration": {"count": 0, "payout": 0},
             "ftd": {"count": 0, "payout": 0},
@@ -120,73 +142,131 @@ async def get_goals_detail(date_from: str, date_to: str) -> str:
             "rdeposit": {"count": 0, "payout": 0},
         }
         for c in data:
-            g = c.get("goal", {}).get("key")  # registration, ftd, bet, rdeposit
-            payout = c.get("payout", 0)
-            if g in goals_map:
-                goals_map[g]["count"] += 1
-                goals_map[g]["payout"] += float(payout)
+            gk = c.get("goal", {}).get("key")
+            if gk in goals_map:
+                goals_map[gk]["count"] += 1
+                goals_map[gk]["payout"] += float(c.get("payout", 0))
 
-        # Формируем текст
-        txt = "<b>Суммарная детализация по целям</b>:\n"
-        # Добавим эмодзи, если хотите
-        emoji_map = {
+        txt = "<b>Общая детализация</b>\n\n"
+        emoji = {
             "registration": "🆕",
             "ftd": "💵",
             "bet": "🎰",
-            "rdeposit": "🔄"
+            "rdeposit": "🔄",
         }
-        for key, val in goals_map.items():
-            em = emoji_map.get(key, "")
+        for k, val in goals_map.items():
             txt += (
-                f"{em} <b>{key}</b>: <i>{val['count']}</i> шт., payout= <i>{val['payout']}</i>\n"
+                f"{emoji.get(k,'')} <b>{k}</b>: {val['count']} шт., payout <i>{val['payout']}</i>\n"
             )
         return txt
-
     except Exception as e:
         return f"⚠️ Ошибка при загрузке детализации: {e}"
 
 # ------------------------------
-# /webhook (по аналогии, если нужно)
+# Обработка POSTBACK (конверсии)
 # ------------------------------
-@app.post("/webhook")
+async def process_postback_data(data: dict):
+    """
+    Восстанавливаем формат «новая конверсия»:
+    """
+    logger.debug(f"Postback data: {data}")
+    offer_id = data.get("offer_id", "N/A")
+    sub_id2 = data.get("sub_id2", "N/A")
+    goal = data.get("goal", "N/A")
+    revenue = data.get("revenue", "N/A")
+    currency = data.get("currency", "USD")
+    status = data.get("status", "N/A")
+    sub_id4 = data.get("sub_id4", "N/A")
+    sub_id5 = data.get("sub_id5", "N/A")
+    conversion_date = data.get("conversion_date", "N/A")
+
+    msg = (
+        "🔔 <b>Новая конверсия!</b>\n\n"
+        f"<b>📌 Оффер:</b> <i>{offer_id}</i>\n"
+        f"<b>🛠 Подход:</b> <i>{sub_id2}</i>\n"
+        f"<b>📊 Тип конверсии:</b> <i>{goal}</i>\n"
+        f"<b>💰 Выплата:</b> <i>{revenue} {currency}</i>\n"
+        f"<b>⚙️ Статус:</b> <i>{status}</i>\n"
+        f"<b>🎯 Кампания:</b> <i>{sub_id4}</i>\n"
+        f"<b>🎯 Адсет:</b> <i>{sub_id5}</i>\n"
+        f"<b>⏰ Время конверсии:</b> <i>{conversion_date}</i>"
+    )
+
+    try:
+        await telegram_app.bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=msg,
+            parse_mode="HTML",
+            reply_markup=get_main_menu()
+        )
+        logger.debug("Сообщение о постбеке отправлено в Telegram.")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке постбека: {e}")
+        return {"error": "Не удалось отправить сообщение"}, 500
+
+    return {"status": "ok"}
+
+# ------------------------------
+# Webhook эндпоинт
+# ------------------------------
+@app.api_route("/webhook", methods=["GET","POST"])
 async def webhook_handler(request: Request):
+    """
+    Унифицированный webhook: либо Telegram update, либо postback (GET/POST).
+    """
+    if request.method == "GET":
+        # postback GET
+        data = dict(request.query_params)
+        return await process_postback_data(data)
+
+    # Иначе POST
     try:
         data = await request.json()
         if "update_id" in data:
+            # Telegram update
             update = Update.de_json(data, telegram_app.bot)
             if not telegram_app.running:
                 await init_telegram_app()
             await telegram_app.process_update(update)
+            return {"status": "ok"}
         else:
-            pass  # postback
+            # postback
+            return await process_postback_data(data)
     except:
-        pass
-    return {"status": "ok"}
+        return {"status": "ok"}
 
 # ------------------------------
-# Команда /start
+# Инициализация бота
+# ------------------------------
+telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+async def init_telegram_app():
+    logger.info("Инициализация Telegram-бота...")
+    await telegram_app.initialize()
+    await telegram_app.start()
+    logger.info("Telegram-бот запущен!")
+
+# ------------------------------
+# /start
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(1)
-    last_msg_id = context.user_data.get("last_bot_message_id")
-    if last_msg_id:
+    last_id = context.user_data.get("last_msg_id")
+    if last_id:
         try:
-            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_msg_id)
-        except Exception as e:
-            logger.debug(f"Не удалось удалить предыдущее сообщение бота: {e}")
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_id)
+        except:
+            pass
 
-    main_keyboard = get_main_menu()
     text = "Привет! Выберите команду:"
-    sent_msg = await update.message.reply_text(text, parse_mode="HTML", reply_markup=main_keyboard)
-    context.user_data["last_bot_message_id"] = sent_msg.message_id
+    mk = get_main_menu()
+    sent = await update.message.reply_text(text, parse_mode="HTML", reply_markup=mk)
+    context.user_data["last_msg_id"] = sent.message_id
 
 # ------------------------------
-# Обработчик кнопок
+# Обработка Reply-кнопок
 # ------------------------------
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
-
     # Удаляем сообщение пользователя
     await asyncio.sleep(1)
     try:
@@ -194,9 +274,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-    # Удаляем предыдущее сообщение бота
+    # Удаляем старое сообщение бота
     await asyncio.sleep(1)
-    last_id = context.user_data.get("last_bot_message_id")
+    last_id = context.user_data.get("last_msg_id")
     if last_id:
         try:
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=last_id)
@@ -204,177 +284,261 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     text = update.message.text.strip()
-    logger.debug(f"Поступила команда: {text}")
 
     if text == "ЛК ПП":
-        link_text = "Ваш личный кабинет партнёра: https://cabinet.4rabetpartner.com/statistics"
-        msg = await update.message.reply_text(link_text, parse_mode="HTML", reply_markup=get_main_menu())
-        context.user_data["last_bot_message_id"] = msg.message_id
+        link_msg = "Ваш личный кабинет: https://cabinet.4rabetpartner.com/statistics"
+        sent = await update.message.reply_text(link_msg, parse_mode="HTML", reply_markup=get_main_menu())
+        context.user_data["last_msg_id"] = sent.message_id
         return
 
     if text == "📊 Получить статистику":
-        st_menu = get_statistics_menu()
-        msg = await update.message.reply_text("Выберите период статистики:", parse_mode="HTML", reply_markup=st_menu)
-        context.user_data["last_bot_message_id"] = msg.message_id
+        # Отправляем inline-кнопки
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Сегодня", callback_data="period_today"),
+                InlineKeyboardButton("7 дней", callback_data="period_7days"),
+                InlineKeyboardButton("За месяц", callback_data="period_month"),
+            ],
+            [
+                InlineKeyboardButton("Свой период", callback_data="period_custom")
+            ],
+            [
+                InlineKeyboardButton("Назад", callback_data="back_mainmenu")
+            ]
+        ])
+        sent = await update.message.reply_text("Выберите период:", parse_mode="HTML", reply_markup=kb)
+        context.user_data["last_msg_id"] = sent.message_id
         return
 
-    if text == "↩️ Назад":
-        # Возвращаемся в главное меню
+    if text in ["⬅️ Назад"]:
         mk = get_main_menu()
-        msg = await update.message.reply_text("Возврат в главное меню:", parse_mode="HTML", reply_markup=mk)
-        context.user_data["last_bot_message_id"] = msg.message_id
+        msg = await update.message.reply_text("Главное меню:", parse_mode="HTML", reply_markup=mk)
+        context.user_data["last_msg_id"] = msg.message_id
         return
 
-    if text == "📅 За сегодня":
-        now_str = datetime.now().strftime("%Y-%m-%d")
-        date_from = f"{now_str} 00:00"
-        date_to = f"{now_str} 23:59"
-        period_label = "За сегодня"
+    # Неизвестная команда
+    msg = await update.message.reply_text("Неизвестная команда", parse_mode="HTML", reply_markup=get_main_menu())
+    context.user_data["last_msg_id"] = msg.message_id
 
-        # 1) Запрашиваем /common
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    f"{BASE_API_URL}/partner/statistic/common",
-                    headers={"API-KEY": API_KEY},
-                    params={
-                        "group_by": "day",
-                        "timezone": "Europe/Moscow",
-                        "date_from": date_from,
-                        "date_to": date_to,
-                        "currency_code": "USD"
-                    }
+# ------------------------------
+# Обработка inline-кнопок
+# ------------------------------
+async def inline_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    logger.debug(f"Callback data: {data}")
+
+    # Назад в главное меню
+    if data == "back_mainmenu":
+        await query.edit_message_text("Главное меню", parse_mode="HTML")
+        await query.edit_message_reply_markup(None)
+        mk = get_main_menu()
+        sent = await query.message.reply_text("Главное меню:", parse_mode="HTML", reply_markup=mk)
+        context.user_data["last_msg_id"] = sent.message_id
+        return
+
+    # Готовые периоды
+    if data == "period_today":
+        d_str = datetime.now().strftime("%Y-%m-%d")
+        date_from = f"{d_str} 00:00"
+        date_to   = f"{d_str} 23:59"
+        label     = "Сегодня"
+        await show_common_stat(query, context, date_from, date_to, label)
+        return
+
+    elif data == "period_7days":
+        end_d = datetime.now().date()
+        start_d = end_d - timedelta(days=6)
+        date_from = f"{start_d} 00:00"
+        date_to   = f"{end_d} 23:59"
+        label     = "Последние 7 дней"
+        await show_common_stat(query, context, date_from, date_to, label)
+        return
+
+    elif data == "period_month":
+        end_d = datetime.now().date()
+        start_d = end_d - timedelta(days=30)
+        date_from = f"{start_d} 00:00"
+        date_to   = f"{end_d} 23:59"
+        label     = "Последние 30 дней"
+        await show_common_stat(query, context, date_from, date_to, label)
+        return
+
+    elif data == "period_custom":
+        # Попросим ввести датy вручную
+        txt = (
+            "<b>Введите период</b> (YYYY-MM-DD,YYYY-MM-DD)\n"
+            "Например: 2025-02-01,2025-02-10\n"
+            "Чтобы отменить, напишите \"Назад\""
+        )
+        await query.edit_message_text(txt, parse_mode="HTML", reply_markup=None)
+        # Задаём флаг, что ждём текст
+        context.user_data["awaiting_custom_period"] = True
+        # Сохраняем, какое сообщение редактировать
+        context.user_data["inline_msg_id"] = query.message.message_id
+        return
+
+    # Детализация
+    if data.startswith("details|"):
+        parts = data.split("|")
+        date_from = parts[1]
+        date_to   = parts[2]
+        label     = parts[3]
+        detail = await get_goals_detail(date_from, date_to)
+        txt_out = f"<b>Детализация ({label})</b>\n\n{detail}"
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Назад", callback_data=f"common_back|{date_from}|{date_to}|{label}")
+            ]
+        ])
+        await query.edit_message_text(txt_out, parse_mode="HTML", reply_markup=kb)
+        return
+
+    if data.startswith("common_back|"):
+        # Вернёмся к статистике /common
+        parts = data.split("|")
+        date_from = parts[1]
+        date_to   = parts[2]
+        label     = parts[3]
+        await show_common_stat(query, context, date_from, date_to, label)
+        return
+
+    await query.edit_message_text("Неизвестная команда", parse_mode="HTML")
+
+# ------------------------------
+# Показ /common + кнопка "Детализация"
+# ------------------------------
+async def show_common_stat(query, context, date_from: str, date_to: str, label: str):
+    ok, data_or_error = await get_common_data(date_from, date_to)
+    if not ok:
+        text = str(data_or_error)
+    else:
+        text = await format_common_stats(data_or_error, label)
+
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Детализация", callback_data=f"details|{date_from}|{date_to}|{label}")
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data="back_mainmenu")
+        ]
+    ])
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+
+# ------------------------------
+# Обработка текста (свой период)
+# ------------------------------
+async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("awaiting_custom_period"):
+        # Если пользователь ввёл "Назад"
+        text = update.message.text.strip()
+        if text.lower() == "назад":
+            context.user_data["awaiting_custom_period"] = False
+            # Восстановим меню выбора периода
+            inline_msg_id = context.user_data["inline_msg_id"]
+            kb = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("Сегодня", callback_data="period_today"),
+                    InlineKeyboardButton("7 дней", callback_data="period_7days"),
+                    InlineKeyboardButton("За месяц", callback_data="period_month"),
+                ],
+                [
+                    InlineKeyboardButton("Свой период", callback_data="period_custom")
+                ],
+                [
+                    InlineKeyboardButton("Назад", callback_data="back_mainmenu")
+                ]
+            ])
+            await update.message.delete()
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=inline_msg_id,
+                    text="Выберите период:",
+                    parse_mode="HTML",
+                    reply_markup=kb
                 )
-            if resp.status_code == 200:
-                data = resp.json()
-                comm_str = await format_common_stats(data, period_label)
-            else:
-                comm_str = f"⚠️ Ошибка /common: {resp.status_code} {resp.text}"
-        except Exception as e:
-            comm_str = f"⚠️ Ошибка: {e}"
+            except Exception as e:
+                logger.error(f"Ошибка при возврате: {e}")
+            return
 
-        # 2) Запрашиваем суммарную детализацию (registration, ftd, bet, rdeposit)
-        detail_str = await get_goals_detail(date_from, date_to)
-
-        # Итоговое сообщение
-        full_txt = comm_str + "\n\n" + detail_str
-        msg = await update.message.reply_text(full_txt, parse_mode="HTML", reply_markup=get_main_menu())
-        context.user_data["last_bot_message_id"] = msg.message_id
-        return
-
-    if text == "📆 За месяц":
-        end_date = datetime.now().date()
-        start_date = end_date - timedelta(days=30)
-        date_from = f"{start_date.strftime('%Y-%m-%d')} 00:00"
-        date_to = f"{end_date.strftime('%Y-%m-%d')} 23:59"
-        period_label = f"За {start_date} - {end_date}"
-
-        # 1) /common
-        try:
-            # Можно, как у вас, покадрово суммировать, но здесь сделаем единый запрос
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    f"{BASE_API_URL}/partner/statistic/common",
-                    headers={"API-KEY": API_KEY},
-                    params={
-                        "group_by": "day",  # или month, если надо
-                        "timezone": "Europe/Moscow",
-                        "date_from": date_from,
-                        "date_to": date_to,
-                        "currency_code": "USD"
-                    }
-                )
-            if resp.status_code == 200:
-                data = resp.json()
-                comm_str = await format_common_stats(data, period_label)
-            else:
-                comm_str = f"⚠️ Ошибка /common: {resp.status_code} {resp.text}"
-        except Exception as e:
-            comm_str = f"⚠️ Ошибка: {e}"
-
-        # 2) Детализация (общее кол-во и payout по registration, ftd, bet, rdeposit)
-        detail_str = await get_goals_detail(date_from, date_to)
-
-        full_txt = comm_str + "\n\n" + detail_str
-        msg = await update.message.reply_text(full_txt, parse_mode="HTML", reply_markup=get_main_menu())
-        context.user_data["last_bot_message_id"] = msg.message_id
-        return
-
-    if text == "🗓 За период":
-        # Спрашиваем у пользователя даты
-        await update.message.reply_text("Введите период (YYYY-MM-DD,YYYY-MM-DD):", parse_mode="HTML")
-        context.user_data["awaiting_period"] = True
-        return
-
-    # Если пользователь вводит период вручную
-    if context.user_data.get("awaiting_period"):
-        context.user_data["awaiting_period"] = False
+        # Иначе парсим даты
         parts = text.split(",")
         if len(parts) != 2:
-            msg = await update.message.reply_text(
-                "Неверный формат. Введите в формате YYYY-MM-DD,YYYY-MM-DD",
-                parse_mode="HTML",
-                reply_markup=get_main_menu()
+            await update.message.delete()
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="❗ Неверный формат. Введите YYYY-MM-DD,YYYY-MM-DD или 'Назад'"
             )
-            context.user_data["last_bot_message_id"] = msg.message_id
             return
         try:
             start_d = datetime.strptime(parts[0].strip(), "%Y-%m-%d").date()
-            end_d = datetime.strptime(parts[1].strip(), "%Y-%m-%d").date()
+            end_d   = datetime.strptime(parts[1].strip(), "%Y-%m-%d").date()
         except:
-            msg = await update.message.reply_text("Ошибка парсинга даты.", parse_mode="HTML", reply_markup=get_main_menu())
-            context.user_data["last_bot_message_id"] = msg.message_id
+            await update.message.delete()
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="❗ Ошибка разбора дат. Попробуйте снова или 'Назад'."
+            )
             return
+
         if start_d > end_d:
-            msg = await update.message.reply_text("Начальная дата больше конечной!", parse_mode="HTML", reply_markup=get_main_menu())
-            context.user_data["last_bot_message_id"] = msg.message_id
+            await update.message.delete()
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="❗ Начальная дата больше конечной! Попробуйте снова или 'Назад'."
+            )
             return
+
+        context.user_data["awaiting_custom_period"] = False
+        inline_msg_id = context.user_data["inline_msg_id"]
+        await update.message.delete()
 
         date_from = f"{start_d} 00:00"
-        date_to = f"{end_d} 23:59"
-        period_label = f"{start_d} - {end_d}"
+        date_to   = f"{end_d} 23:59"
+        label     = f"{start_d} - {end_d}"
 
-        # /common
+        # Делаем /common
+        ok, data_or_error = await get_common_data(date_from, date_to)
+        if not ok:
+            text_final = str(data_or_error)
+        else:
+            text_final = await format_common_stats(data_or_error, label)
+
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Детализация", callback_data=f"details|{date_from}|{date_to}|{label}")
+            ],
+            [
+                InlineKeyboardButton("Назад", callback_data="back_mainmenu")
+            ]
+        ])
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    f"{BASE_API_URL}/partner/statistic/common",
-                    headers={"API-KEY": API_KEY},
-                    params={
-                        "group_by": "day",
-                        "timezone": "Europe/Moscow",
-                        "date_from": date_from,
-                        "date_to": date_to,
-                        "currency_code": "USD"
-                    }
-                )
-            if resp.status_code == 200:
-                data = resp.json()
-                comm_str = await format_common_stats(data, period_label)
-            else:
-                comm_str = f"⚠️ Ошибка /common: {resp.status_code} {resp.text}"
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=inline_msg_id,
+                text=text_final,
+                parse_mode="HTML",
+                reply_markup=kb
+            )
         except Exception as e:
-            comm_str = f"⚠️ Ошибка: {e}"
-
-        # Детализация
-        detail_str = await get_goals_detail(date_from, date_to)
-        full_txt = comm_str + "\n\n" + detail_str
-        msg = await update.message.reply_text(full_txt, parse_mode="HTML", reply_markup=get_main_menu())
-        context.user_data["last_bot_message_id"] = msg.message_id
-        return
-
-    # Если команда не распознана
-    msg = await update.message.reply_text("Неизвестная команда.", parse_mode="HTML", reply_markup=get_main_menu())
-    context.user_data["last_bot_message_id"] = msg.message_id
+            logger.error(f"Ошибка edit_message_text: {e}")
+    else:
+        # Не ждём период => возможно это Reply-кнопка
+        pass
 
 # ------------------------------
-# /start
+# Регистрация хэндлеров
 # ------------------------------
 telegram_app.add_handler(CommandHandler("start", start_command))
-# ------------------------------
-# Обработка команд (Reply-кнопки)
-# ------------------------------
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
+# Сначала проверяем, не вводит ли пользователь период:
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_input_handler), group=1)
+# Если нет - обрабатываем Reply-кнопки:
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler), group=2)
+# Инлайн-кнопки:
+telegram_app.add_handler(CallbackQueryHandler(inline_button_handler))
 
 # ------------------------------
 # Запуск
@@ -382,6 +546,5 @@ telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_
 if __name__ == "__main__":
     import uvicorn
     loop = asyncio.get_event_loop()
-    loop.create_task(telegram_app.initialize())
-    loop.create_task(telegram_app.start())
+    loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
