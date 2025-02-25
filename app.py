@@ -198,7 +198,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Далее идет основная логика обработки команд...
 
-    }
     now = datetime.now()  # Если требуется, можно использовать ZoneInfo("Europe/Moscow")
 
     if text == "Получить статистику":
