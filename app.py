@@ -54,22 +54,19 @@ def get_main_menu():
 @app.api_route("/webhook", methods=["GET","POST"])
 async def webhook_handler(request: Request):
     if request.method == "GET":
-        # Принимаем postback
+        # Postback
         data = dict(request.query_params)
         return await process_postback_data(data)
 
-    # POST => либо Telegram, либо postback
     try:
         data = await request.json()
         if "update_id" in data:
-            # Telegram update
             update = Update.de_json(data, telegram_app.bot)
             if not telegram_app.running:
                 await init_telegram_app()
             await telegram_app.process_update(update)
             return {"status":"ok"}
         else:
-            # postback
             return await process_postback_data(data)
     except Exception as e:
         logger.error(f"Ошибка обработки webhook: {e}")
@@ -90,7 +87,7 @@ async def init_telegram_app():
 async def process_postback_data(data: dict):
     logger.debug(f"Postback data: {data}")
     offer_id = data.get("offer_id","N/A")
-    sub_id3  = data.get("sub_id3","N/A")
+    sub_id2  = data.get("sub_id2","N/A")
     goal     = data.get("goal","N/A")
     revenue  = data.get("revenue","N/A")
     currency = data.get("currency","USD")
@@ -102,7 +99,7 @@ async def process_postback_data(data: dict):
     msg = (
         "🔔 <b>Новая конверсия!</b>\n\n"
         f"<b>📌 Оффер:</b> <i>{offer_id}</i>\n"
-        f"<b>🛠 Подход:</b> <i>{sub_id3}</i>\n"
+        f"<b>🛠 Подход:</b> <i>{sub_id2}</i>\n"
         f"<b>📊 Тип конверсии:</b> <i>{goal}</i>\n"
         f"<b>💰 Выплата:</b> <i>{revenue} {currency}</i>\n"
         f"<b>⚙️ Статус:</b> <i>{status}</i>\n"
@@ -119,7 +116,7 @@ async def process_postback_data(data: dict):
         )
         logger.debug("Postback-сообщение отправлено.")
     except Exception as e:
-        logger.error(f"Ошибка отправки postback: {e}")
+        logger.error(f"Ошибка при отправке postback: {e}")
         return {"error":"не удалось"}, 500
 
     return {"status":"ok"}
@@ -128,36 +125,33 @@ async def process_postback_data(data: dict):
 # /start
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = "Привет! Выберите команду:"
-    mk = get_main_menu()
-    sent = await update.message.reply_text(text, parse_mode="HTML", reply_markup=mk)
-    # Не удаляем прошлые сообщения. Просто оставляем всё.
+    # НЕ удаляем ничего — просто отвечаем
+    txt = "Привет! Выберите команду:"
+    mk  = get_main_menu()
+    await update.message.reply_text(txt, parse_mode="HTML", reply_markup=mk)
 
 # ------------------------------
-# Агрегация для /common
+# Агрегация для /common (group_by=day, суммируем)
 # ------------------------------
 async def get_common_data_aggregated(date_from: str, date_to: str):
-    """
-    group_by=day, суммируем клики, уник.клики, confirmed
-    """
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(
                 f"{BASE_API_URL}/partner/statistic/common",
                 headers={"API-KEY": API_KEY},
                 params={
-                    "group_by": "day",
-                    "timezone": "Europe/Moscow",
+                    "group_by":"day",
+                    "timezone":"Europe/Moscow",
                     "date_from": date_from,
                     "date_to": date_to,
-                    "currency_code": "USD"
+                    "currency_code":"USD"
                 }
             )
-        if r.status_code != 200:
+        if r.status_code!=200:
             return False, f"Ошибка /common {r.status_code}: {r.text}"
 
         data = r.json()
-        arr = data.get("data",[])
+        arr  = data.get("data",[])
         if not arr:
             return True, {
                 "click_count":0,
@@ -166,19 +160,19 @@ async def get_common_data_aggregated(date_from: str, date_to: str):
                 "conf_payout":0.0
             }
 
-        sum_click, sum_unique, sum_conf, sum_pay = 0,0,0,0.0
+        s_click, s_unique, s_conf, s_pay = 0,0,0,0.0
         for item in arr:
-            sum_click += item.get("click_count",0)
-            sum_unique += item.get("click_unique_count",0)
+            s_click += item.get("click_count",0)
+            s_unique+= item.get("click_unique_count",0)
             c_ = item.get("conversions",{}).get("confirmed",{})
-            sum_conf += c_.get("count",0)
-            sum_pay  += c_.get("payout",0.0)
+            s_conf += c_.get("count",0)
+            s_pay  += c_.get("payout",0.0)
 
-        return True, {
-            "click_count": sum_click,
-            "click_unique": sum_unique,
-            "conf_count": sum_conf,
-            "conf_payout": sum_pay
+        return True,{
+            "click_count": s_click,
+            "click_unique": s_unique,
+            "conf_count": s_conf,
+            "conf_payout": s_pay
         }
     except Exception as e:
         return False, f"Ошибка /common: {e}"
@@ -190,13 +184,13 @@ async def get_rfr_aggregated(date_from: str, date_to: str):
     out = {"registration":0,"ftd":0,"rdeposit":0}
     base_params = [
         ("timezone","Europe/Moscow"),
-        ("date_from",date_from),
-        ("date_to",date_to),
+        ("date_from", date_from),
+        ("date_to", date_to),
         ("per_page","500"),
         ("group_by","day")
     ]
     for g in ["registration","ftd","rdeposit"]:
-        base_params.append(("goal_keys[]",g))
+        base_params.append(("goal_keys[]", g))
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -217,23 +211,23 @@ async def get_rfr_aggregated(date_from: str, date_to: str):
         return False, str(e)
 
 # ------------------------------
-# Формируем текст без метрики "средний чек"
+# Формируем итоговый текст (без «средний чек»)
 # ------------------------------
 def build_stats_text(
     label, date_label,
     clicks, unique_clicks,
-    reg, ftd, rd,
-    conf_count, conf_pay
+    reg_count, ftd_count, rd_count,
+    conf_count, conf_payout
 ):
     return (
         f"📊 <b>Статистика</b> ({label})\n\n"
         f"🗓 <b>Период:</b> <i>{date_label}</i>\n\n"
         f"👁 <b>Клики:</b> <i>{clicks}</i> (уник: {unique_clicks})\n"
-        f"🆕 <b>Регистрации:</b> <i>{reg}</i>\n"
-        f"💵 <b>FTD:</b> <i>{ftd}</i>\n"
-        f"🔄 <b>RD:</b> <i>{rd}</i>\n\n"
+        f"🆕 <b>Регистрации:</b> <i>{reg_count}</i>\n"
+        f"💵 <b>FTD:</b> <i>{ftd_count}</i>\n"
+        f"🔄 <b>RD:</b> <i>{rd_count}</i>\n\n"
         f"✅ <b>Конверсии:</b> <i>{conf_count}</i>\n"
-        f"💰 <b>Доход:</b> <i>{conf_pay:.2f} USD</i>\n"
+        f"💰 <b>Доход:</b> <i>{conf_payout:.2f} USD</i>\n"
     )
 
 # ------------------------------
@@ -241,11 +235,11 @@ def build_stats_text(
 # ------------------------------
 def build_metrics(clicks, unique_clicks, reg, ftd):
     """
-    C2R = (reg/clicks)*100
-    R2D = (ftd/reg)*100
-    C2D = (ftd/clicks)*100
-    EPC = ftd/clicks
-    uEPC= ftd/unique_clicks
+    C2R = (reg / clicks)*100
+    R2D = (ftd / reg)*100
+    C2D = (ftd / clicks)*100
+    EPC = ftd / clicks
+    uEPC= ftd / unique_clicks
     """
     c2r = (reg/clicks*100) if clicks>0 else 0
     r2d = (ftd/reg*100) if reg>0 else 0
@@ -263,27 +257,26 @@ def build_metrics(clicks, unique_clicks, reg, ftd):
     )
 
 # ------------------------------
-# Inline-кнопки
+# CallbackQueryHandler
 # ------------------------------
 async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
 
-    # «Назад» в главное меню
+    # "Назад" => главное меню
     if data=="back_menu":
         await query.edit_message_text("Главное меню", parse_mode="HTML")
-        # Покажем Reply-кнопки
         mk = get_main_menu()
         await query.message.reply_text("Главное меню:", parse_mode="HTML", reply_markup=mk)
         return
 
-    # «Сегодня / 7 дней / месяц»
     if data in ["period_today","period_7days","period_month"]:
+        # Вычисляем период
         if data=="period_today":
-            d_str = datetime.now().strftime("%Y-%m-%d")
-            date_from = f"{d_str} 00:00"
-            date_to   = f"{d_str} 23:59"
+            day_str = datetime.now().strftime("%Y-%m-%d")
+            date_from = f"{day_str} 00:00"
+            date_to   = f"{day_str} 23:59"
             label     = "Сегодня"
         elif data=="period_7days":
             end_ = datetime.now().date()
@@ -297,10 +290,10 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             date_from = f"{start_} 00:00"
             date_to   = f"{end_} 23:59"
             label     = "Последние 30 дней"
+
         await show_stats_screen(query, context, date_from, date_to, label)
         return
 
-    # «Свой период»
     if data=="period_custom":
         txt = (
             "🗓 Введите период (YYYY-MM-DD,YYYY-MM-DD)\n"
@@ -309,10 +302,9 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await query.edit_message_text(txt, parse_mode="HTML")
         context.user_data["awaiting_period"] = True
-        context.user_data["inline_msg_id"] = query.message.message_id
+        context.user_data["inline_msg_id"]   = query.message.message_id
         return
 
-    # «Назад к выбору периодов»
     if data=="back_periods":
         kb = InlineKeyboardMarkup([
             [
@@ -330,7 +322,6 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Выберите период:", parse_mode="HTML", reply_markup=kb)
         return
 
-    # «Рассчитать метрики»
     if data.startswith("metrics|"):
         uniq_id = data.split("|")[1]
         store = context.user_data.get("stats_store",{}).get(uniq_id)
@@ -338,14 +329,14 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❗ Данные не найдены", parse_mode="HTML")
             return
         base_text = store["base_text"]
-        c_        = store["clicks"]
-        u_        = store["unique"]
-        r_        = store["reg"]
-        f_        = store["ftd"]
-        rd_       = store["rd"]
+        c_ = store["clicks"]
+        uc_= store["unique"]
+        r_ = store["reg"]
+        f_ = store["ftd"]
+        rd_= store["rd"]
 
-        met_str   = build_metrics(c_, u_, r_, f_)
-        final_txt = base_text + "\n" + met_str
+        metrics_text = build_metrics(c_, uc_, r_, f_)
+        final_tx = base_text + "\n" + metrics_text
         kb = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("Скрыть метрики", callback_data=f"hide|{uniq_id}")
@@ -354,18 +345,15 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("Назад", callback_data="back_periods")
             ]
         ])
-        await query.edit_message_text(final_txt, parse_mode="HTML", reply_markup=kb)
+        await query.edit_message_text(final_tx, parse_mode="HTML", reply_markup=kb)
         return
 
-    # «Скрыть метрики»
     if data.startswith("hide|"):
         uniq_id = data.split("|")[1]
-        store = context.user_data.get("stats_store",{}).get(uniq_id)
-        if not store:
+        st_ = context.user_data.get("stats_store",{}).get(uniq_id)
+        if not st_:
             await query.edit_message_text("❗ Данные не найдены", parse_mode="HTML")
             return
-        # Возвращаем base_text
-        base_t = store["base_text"]
         kb = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("✨ Рассчитать метрики", callback_data=f"metrics|{uniq_id}")
@@ -374,57 +362,53 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("Назад", callback_data="back_periods")
             ]
         ])
-        await query.edit_message_text(base_t, parse_mode="HTML", reply_markup=kb)
+        await query.edit_message_text(st_["base_text"], parse_mode="HTML", reply_markup=kb)
         return
 
     # Иначе
     await query.edit_message_text("Неизвестная команда", parse_mode="HTML")
 
 # ------------------------------
-# Показ статистики + кнопка
+# Показ статистики
 # ------------------------------
-async def show_stats_screen(query, context, date_from, date_to, label):
-    # /common
+async def show_stats_screen(query, context, date_from: str, date_to: str, label: str):
+    # /common aggregated
     okc, cinfo = await get_common_data_aggregated(date_from, date_to)
     if not okc:
         text = f"❗ {cinfo}"
-        kb   = InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_periods")]])
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_periods")]])
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
         return
-
     cc  = cinfo["click_count"]
-    ucc = cinfo["click_unique"]
-    conf_count = cinfo["conf_count"]
-    conf_pay   = cinfo["conf_payout"]
+    uc  = cinfo["click_unique"]
+    confc = cinfo["conf_count"]
+    confp = cinfo["conf_payout"]
 
-    # /conversions
+    # /conversions => registration, ftd, rdeposit
     okr, rdata = await get_rfr_aggregated(date_from, date_to)
     if not okr:
         text = f"❗ {rdata}"
         kb   = InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_periods")]])
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
         return
-
     reg = rdata["registration"]
     ftd = rdata["ftd"]
     rd  = rdata["rdeposit"]
 
-    date_lbl = f"{date_from[:10]} .. {date_to[:10]}"
-
+    date_lbl = f"{date_from[:10]}..{date_to[:10]}"
     base_text = build_stats_text(
         label, date_lbl,
-        cc, ucc, reg, ftd, rd,
-        conf_count, conf_pay
+        cc, uc, reg, ftd, rd,
+        confc, confp
     )
 
-    # Сохраняем в context.user_data
     if "stats_store" not in context.user_data:
-        context.user_data["stats_store"] = {}
-    uniq_id = str(uuid.uuid4())[:8]
-    context.user_data["stats_store"][uniq_id] = {
+        context.user_data["stats_store"]={}
+    uniqid = str(uuid.uuid4())[:8]
+    context.user_data["stats_store"][uniqid] = {
         "base_text": base_text,
         "clicks": cc,
-        "unique": ucc,
+        "unique": uc,
         "reg": reg,
         "ftd": ftd,
         "rd": rd
@@ -432,7 +416,7 @@ async def show_stats_screen(query, context, date_from, date_to, label):
 
     kb = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("✨ Рассчитать метрики", callback_data=f"metrics|{uniq_id}")
+            InlineKeyboardButton("✨ Рассчитать метрики", callback_data=f"metrics|{uniqid}")
         ],
         [
             InlineKeyboardButton("Назад", callback_data="back_periods")
@@ -441,13 +425,23 @@ async def show_stats_screen(query, context, date_from, date_to, label):
     await query.edit_message_text(base_text, parse_mode="HTML", reply_markup=kb)
 
 # ------------------------------
-# Ввод дат вручную (Свой период)
+# Ввод дат (Свой период)
 # ------------------------------
 async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Удаляем только СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ, если хотим «очистить» чат
+    """
     if context.user_data.get("awaiting_period"):
+        # (удаляем сообщение пользователя)
+        await asyncio.sleep(1)
+        try:
+            await update.message.delete()
+        except:
+            pass
+
         txt = update.message.text.strip()
-        if txt.lower() == "назад":
-            context.user_data["awaiting_period"] = False
+        if txt.lower()=="назад":
+            context.user_data["awaiting_period"]=False
             inline_id = context.user_data.get("inline_msg_id")
             if inline_id:
                 kb = InlineKeyboardMarkup([
@@ -463,17 +457,16 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                         InlineKeyboardButton("Назад", callback_data="back_menu")
                     ]
                 ])
-                # Просто редактируем текст (не удаляем ничего)
                 try:
-                    await context.bot.edit_message_text(
-                        "Выберите период:",
+                    await telegram_app.bot.edit_message_text(
                         chat_id=update.effective_chat.id,
                         message_id=inline_id,
+                        text="Выберите период:",
                         parse_mode="HTML",
                         reply_markup=kb
                     )
                 except Exception as e:
-                    logger.error(f"Ошибка при возврате в меню периодов: {e}")
+                    logger.error(f"Ошибка возврата в меню периодов: {e}")
             return
 
         parts = txt.split(",")
@@ -481,16 +474,16 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("❗ Формат: YYYY-MM-DD,YYYY-MM-DD или 'Назад'")
             return
         try:
-            st_d = datetime.strptime(parts[0].strip(), "%Y-%m-%d").date()
-            ed_d = datetime.strptime(parts[1].strip(), "%Y-%m-%d").date()
+            st_d = datetime.strptime(parts[0].strip(),"%Y-%m-%d").date()
+            ed_d = datetime.strptime(parts[1].strip(),"%Y-%m-%d").date()
         except:
-            await update.message.reply_text("❗ Ошибка разбора дат, введите заново.")
+            await update.message.reply_text("❗ Ошибка разбора дат.")
             return
         if st_d > ed_d:
-            await update.message.reply_text("❗ Начальная дата больше конечной.")
+            await update.message.reply_text("❗ Начальная дата больше конечной")
             return
 
-        context.user_data["awaiting_period"] = False
+        context.user_data["awaiting_period"]=False
         inline_id = context.user_data["inline_msg_id"]
 
         date_from = f"{st_d} 00:00"
@@ -499,12 +492,12 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         # Фейковый query
         class FakeQ:
-            def __init__(self, msg_id, chat_id):
+            def __init__(self, msg_id, c_id):
                 self.message = type("Msg",(),{})()
                 self.message.message_id = msg_id
-                self.message.chat_id    = chat_id
+                self.message.chat_id    = c_id
             async def edit_message_text(self,*args,**kwargs):
-                return await context.bot.edit_message_text(
+                return await telegram_app.bot.edit_message_text(
                     chat_id=self.message.chat_id,
                     message_id=self.message.message_id,
                     *args,**kwargs
@@ -516,10 +509,20 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await show_stats_screen(fquery, context, date_from, date_to, lbl)
 
 # ------------------------------
-# Обработка reply-кнопок
+# Обработка остальных Reply-кнопок
 # ------------------------------
 async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Удаляем только сообщение пользователя (не бот-сообщения).
+    """
+    await asyncio.sleep(1)
+    try:
+        await update.message.delete()
+    except:
+        pass
+
     text = update.message.text.strip()
+
     if text=="ЛК ПП":
         link = "Ваш личный кабинет: https://cabinet.4rabetpartner.com/statistics"
         await update.message.reply_text(link, parse_mode="HTML", reply_markup=get_main_menu())
@@ -552,7 +555,7 @@ async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 # Регистрация хэндлеров
 # ------------------------------
 telegram_app.add_handler(CommandHandler("start", start_command))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, period_text_handler),  group=1)
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, period_text_handler), group=1)
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_button_handler), group=2)
 telegram_app.add_handler(CallbackQueryHandler(inline_handler))
 
