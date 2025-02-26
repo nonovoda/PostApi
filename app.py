@@ -442,6 +442,8 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         txt = update.message.text.strip()
         if txt.lower()=="назад":
             context.user_data["awaiting_period"]=False
+            return
+            
             inline_id = context.user_data.get("inline_msg_id")
             if inline_id:
                 kb = InlineKeyboardMarkup([
