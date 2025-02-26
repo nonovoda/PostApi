@@ -466,9 +466,20 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         # "фейковый query" + show_stats_screen
         class FakeQ:
-            ...
-        fquery = FakeQ(inline_id, update.effective_chat.id)
-        await show_stats_screen(fquery, context, date_from, date_to, lbl)
+    def __init__(self, msg_id, chat_id):
+        self.message = type("Msg", (), {})()
+        self.message.message_id = msg_id
+        self.message.chat_id = chat_id
+
+    async def edit_message_text(self, *args, **kwargs):
+        return await telegram_app.bot.edit_message_text(
+            chat_id=self.message.chat_id,
+            message_id=self.message.message_id,
+            *args, **kwargs
+        )
+
+    async def answer(self):
+        pass
 
         return  # <--- ВАЖНО: прерываем цепочку хэндлеров!
 
