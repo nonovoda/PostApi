@@ -87,7 +87,7 @@ async def init_telegram_app():
 async def process_postback_data(data: dict):
     logger.debug(f"Postback data: {data}")
     offer_id = data.get("offer_id","N/A")
-    sub_id2  = data.get("sub_id2","N/A")
+    sub_id3  = data.get("sub_id3","N/A")
     goal     = data.get("goal","N/A")
     revenue  = data.get("revenue","N/A")
     currency = data.get("currency","USD")
@@ -99,7 +99,7 @@ async def process_postback_data(data: dict):
     msg = (
         "🔔 <b>Новая конверсия!</b>\n\n"
         f"<b>📌 Оффер:</b> <i>{offer_id}</i>\n"
-        f"<b>🛠 Подход:</b> <i>{sub_id2}</i>\n"
+        f"<b>🛠 Подход:</b> <i>{sub_id3}</i>\n"
         f"<b>📊 Тип конверсии:</b> <i>{goal}</i>\n"
         f"<b>💰 Выплата:</b> <i>{revenue} {currency}</i>\n"
         f"<b>⚙️ Статус:</b> <i>{status}</i>\n"
