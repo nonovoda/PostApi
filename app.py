@@ -126,7 +126,7 @@ async def process_postback_data(data: dict):
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "Привет! Выберите команду:"
-    mk = get_main_menu()
+    mk   = get_main_menu()
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=mk)
 
 # ------------------------------
@@ -161,8 +161,8 @@ async def get_common_data_aggregated(date_from: str, date_to: str):
 
         s_click, s_unique, s_conf, s_pay = 0,0,0,0.0
         for item in arr:
-            s_click += item.get("click_count",0)
-            s_unique+= item.get("click_unique_count",0)
+            s_click  += item.get("click_count",0)
+            s_unique += item.get("click_unique_count",0)
             c_ = item.get("conversions",{}).get("confirmed",{})
             s_conf += c_.get("count",0)
             s_pay  += c_.get("payout",0.0)
@@ -189,7 +189,7 @@ async def get_rfr_aggregated(date_from: str, date_to: str):
         ("group_by","day")
     ]
     for g in ["registration","ftd","rdeposit"]:
-        base_params.append(("goal_keys[]", g))
+        base_params.append(("goal_keys[]",g))
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -210,7 +210,7 @@ async def get_rfr_aggregated(date_from: str, date_to: str):
         return False, str(e)
 
 # ------------------------------
-# Формируем итоговый текст (без среднего чека)
+# Формируем итоговый текст
 # ------------------------------
 def build_stats_text(
     label, date_label,
@@ -233,13 +233,6 @@ def build_stats_text(
 # Метрики (без среднего чека)
 # ------------------------------
 def build_metrics(clicks, unique_clicks, reg, ftd):
-    """
-    C2R = (reg/clicks)*100
-    R2D = (ftd/reg)*100
-    C2D = (ftd/clicks)*100
-    EPC = ftd/clicks
-    uEPC= ftd/unique_clicks
-    """
     c2r = (reg/clicks*100) if clicks>0 else 0
     r2d = (ftd/reg*100) if reg>0 else 0
     c2d = (ftd/clicks*100) if clicks>0 else 0
@@ -256,7 +249,7 @@ def build_metrics(clicks, unique_clicks, reg, ftd):
     )
 
 # ------------------------------
-# CallbackQueryHandler
+# Хэндлер inline-кнопок
 # ------------------------------
 async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -330,10 +323,9 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uc_= store["unique"]
         r_ = store["reg"]
         f_ = store["ftd"]
-        # rd_ = store["rd"] # not needed for metrics
 
-        metrics_tx = build_metrics(c_, uc_, r_, f_)
-        final_tx   = base_text + "\n" + metrics_tx
+        metrics_txt = build_metrics(c_, uc_, r_, f_)
+        final_tx    = base_text + "\n" + metrics_txt
         kb = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("Скрыть метрики", callback_data=f"hide|{uniq_id}")
@@ -368,11 +360,12 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Показ итоговой статистики
 # ------------------------------
 async def show_stats_screen(query, context, date_from: str, date_to: str, label: str):
-    # /common aggregated
     okc, cinfo = await get_common_data_aggregated(date_from, date_to)
     if not okc:
         text = f"❗ {cinfo}"
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_periods")]])
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Назад", callback_data="back_periods")]
+        ])
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
         return
     cc  = cinfo["click_count"]
@@ -380,13 +373,15 @@ async def show_stats_screen(query, context, date_from: str, date_to: str, label:
     confc = cinfo["conf_count"]
     confp = cinfo["conf_payout"]
 
-    # /conversions => registration, ftd, rdeposit
     okr, rdata = await get_rfr_aggregated(date_from, date_to)
     if not okr:
         text = f"❗ {rdata}"
-        kb   = InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_periods")]])
+        kb   = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Назад", callback_data="back_periods")]
+        ])
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
         return
+
     reg = rdata["registration"]
     ftd = rdata["ftd"]
     rd  = rdata["rdeposit"]
@@ -421,28 +416,30 @@ async def show_stats_screen(query, context, date_from: str, date_to: str, label:
     await query.edit_message_text(base_text, parse_mode="HTML", reply_markup=kb)
 
 # ------------------------------
-# "FakeQ" класс (fix constructor)
+# FakeQ класс
 # ------------------------------
-class FakeQ:  # <-- FIXED: now takes 2 arguments
+class FakeQ:
     def __init__(self, msg_id, chat_id):
         self.message = type("Msg", (), {})()
         self.message.message_id = msg_id
         self.message.chat_id    = chat_id
+
     async def edit_message_text(self, *args, **kwargs):
         return await telegram_app.bot.edit_message_text(
             chat_id=self.message.chat_id,
             message_id=self.message.message_id,
             *args, **kwargs
         )
+
     async def answer(self):
         pass
 
 # ------------------------------
-# Ввод дат (Свой период)
+# Хэндлер ввода дат (свой период)
 # ------------------------------
 async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting_period"):
-        # Удаляем только сообщение пользователя
+        # Удаляем сообщение пользователя (только)
         await asyncio.sleep(1)
         try:
             await update.message.delete()
@@ -451,7 +448,7 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         txt = update.message.text.strip()
         if txt.lower()=="назад":
-            context.user_data["awaiting_period"]=False
+            context.user_data["awaiting_period"] = False
             inline_id = context.user_data.get("inline_msg_id")
             if inline_id:
                 kb = InlineKeyboardMarkup([
@@ -477,36 +474,42 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                     )
                 except Exception as e:
                     logger.error(f"Ошибка возврата в меню периодов: {e}")
+            # <-- ADDED await update.stop():
+            await update.stop()
             return
 
         parts = txt.split(",")
         if len(parts)!=2:
             await update.message.reply_text("❗ Формат: YYYY-MM-DD,YYYY-MM-DD или 'Назад'")
+            await update.stop()  # <-- ADDED
             return
         try:
             st_d = datetime.strptime(parts[0].strip(),"%Y-%m-%d").date()
             ed_d = datetime.strptime(parts[1].strip(),"%Y-%m-%d").date()
         except:
             await update.message.reply_text("❗ Ошибка разбора дат.")
+            await update.stop()  # <-- ADDED
             return
         if st_d > ed_d:
             await update.message.reply_text("❗ Начальная дата больше конечной.")
+            await update.stop()  # <-- ADDED
             return
 
-        context.user_data["awaiting_period"]=False
+        context.user_data["awaiting_period"] = False
         inline_id = context.user_data["inline_msg_id"]
 
         date_from = f"{st_d} 00:00"
         date_to   = f"{ed_d} 23:59"
         lbl       = "Свой период"
 
-        fquery = FakeQ(inline_id, update.effective_chat.id)  # <-- FIXED
+        fquery = FakeQ(inline_id, update.effective_chat.id)
         await show_stats_screen(fquery, context, date_from, date_to, lbl)
 
-        return  # <-- ensure we don't pass to the next handler!
+        await update.stop()  # <-- ensure we don't pass to the next handler
+        return
 
 # ------------------------------
-# Reply-кнопки (получить статистику, лк пп...)
+# Reply-кнопки (получить статистику, лк пп, ...)
 # ------------------------------
 async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Удаляем только сообщение пользователя
@@ -561,3 +564,4 @@ if __name__=="__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(init_telegram_app())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
