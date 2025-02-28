@@ -39,6 +39,7 @@ telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 # Главное меню (Reply-кнопки)
 # ------------------------------
 def get_main_menu():
+    # Главный inline-меню теперь не отправляется отдельно, чтобы не засорять чат.
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton("📊 Получить статистику"), KeyboardButton("ЛК ПП")],
@@ -80,12 +81,12 @@ async def init_telegram_app():
     logger.info("Telegram-бот запущен!")
 
 # ------------------------------
-# Приём postback (конверсия)
+# Postback (конверсия)
 # ------------------------------
 async def process_postback_data(data: dict):
     logger.debug(f"Postback data: {data}")
     offer_id = data.get("offer_id", "N/A")
-    sub_id3  = data.get("sub_id3", "N/A")
+    sub_id2  = data.get("sub_id2", "N/A")
     goal     = data.get("goal", "N/A")
     revenue  = data.get("revenue", "N/A")
     currency = data.get("currency", "USD")
@@ -97,7 +98,7 @@ async def process_postback_data(data: dict):
     msg = (
         "🔔 <b>Новая конверсия!</b>\n\n"
         f"<b>📌 Оффер:</b> <i>{offer_id}</i>\n"
-        f"<b>🛠 Подход:</b> <i>{sub_id3}</i>\n"
+        f"<b>🛠 Подход:</b> <i>{sub_id2}</i>\n"
         f"<b>📊 Тип конверсии:</b> <i>{goal}</i>\n"
         f"<b>💰 Выплата:</b> <i>{revenue} {currency}</i>\n"
         f"<b>⚙️ Статус:</b> <i>{status}</i>\n"
@@ -123,7 +124,7 @@ async def process_postback_data(data: dict):
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = "Привет! Выберите команду:"
-    mk  = get_main_menu()
+    mk = get_main_menu()
     await update.message.reply_text(txt, parse_mode="HTML", reply_markup=mk)
 
 # ------------------------------
@@ -203,7 +204,7 @@ async def get_rfr_aggregated(date_from: str, date_to: str):
         return False, str(e)
 
 # ------------------------------
-# Формирование итогового текста статистики (без среднего чека)
+# Формирование итогового текста статистики (без "среднего чека")
 # ------------------------------
 def build_stats_text(label, date_label, clicks, unique_clicks, reg_count, ftd_count, rd_count, conf_count, conf_payout):
     return (
@@ -218,21 +219,21 @@ def build_stats_text(label, date_label, clicks, unique_clicks, reg_count, ftd_co
     )
 
 # ------------------------------
-# Формирование метрик (без среднего чека)
+# Формирование метрик (Новые формулы: EPC = Доход/клики, uEPC = Доход/уникальные клики)
 # ------------------------------
-def build_metrics(clicks, unique_clicks, reg, ftd):
-    c2r = (reg/clicks*100) if clicks > 0 else 0
-    r2d = (ftd/reg*100) if reg > 0 else 0
-    c2d = (ftd/clicks*100) if clicks > 0 else 0
-    epc = (total_income/clicks) if clicks > 0 else 0
-    uepc = (total_income/unique_clicks) if unique_clicks > 0 else 0
+def build_metrics(clicks, unique_clicks, reg, ftd, conf_payout):
+    c2r = (reg / clicks * 100) if clicks > 0 else 0
+    r2d = (ftd / reg * 100) if reg > 0 else 0
+    c2d = (ftd / clicks * 100) if clicks > 0 else 0
+    epc = (conf_payout / clicks) if clicks > 0 else 0
+    uepc = (conf_payout / unique_clicks) if unique_clicks > 0 else 0
     return (
         "🎯 <b>Метрики:</b>\n\n"
         f"• <b>C2R</b> = {c2r:.2f}%\n"
         f"• <b>R2D</b> = {r2d:.2f}%\n"
         f"• <b>C2D</b> = {c2d:.2f}%\n\n"
-        f"• <b>EPC</b> = {epc:.3f}\n"
-        f"• <b>uEPC</b> = {uepc:.3f}\n"
+        f"• <b>EPC</b> = {epc:.3f} USD\n"
+        f"• <b>uEPC</b> = {uepc:.3f} USD\n"
     )
 
 # ------------------------------
@@ -308,7 +309,8 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uc_ = store["unique"]
         r_ = store["reg"]
         f_ = store["ftd"]
-        metrics_txt = build_metrics(c_, uc_, r_, f_)
+        confp = store["confp"]
+        metrics_txt = build_metrics(c_, uc_, r_, f_, confp)
         final_txt = base_text + "\n" + metrics_txt
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("Скрыть метрики", callback_data=f"hide|{uniq_id}")],
@@ -338,7 +340,6 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not store:
             await query.edit_message_text("❗ Данные не найдены", parse_mode="HTML")
             return
-        # Извлекаем параметры из сохранённого store и вызываем show_stats_screen, чтобы обновить статистику
         date_from = store.get("date_from")
         date_to = store.get("date_to")
         label = store.get("label")
@@ -378,7 +379,6 @@ async def show_stats_screen(query, context, date_from: str, date_to: str, label:
     date_lbl = f"{date_from[:10]} .. {date_to[:10]}"
     base_text = build_stats_text(label, date_lbl, cc, uc, reg, ftd, rd, confc, confp)
 
-    # Сохраняем параметры для обновления статистики в stats_store
     if "stats_store" not in context.user_data:
         context.user_data["stats_store"] = {}
     uniq_id = str(uuid.uuid4())[:8]
@@ -391,7 +391,8 @@ async def show_stats_screen(query, context, date_from: str, date_to: str, label:
         "rd": rd,
         "date_from": date_from,
         "date_to": date_to,
-        "label": label
+        "label": label,
+        "confp": confp
     }
 
     kb = InlineKeyboardMarkup([
@@ -436,11 +437,9 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             inline_id = context.user_data.get("inline_msg_id")
             if inline_id:
                 kb = InlineKeyboardMarkup([
-                    [
-                        InlineKeyboardButton("Сегодня", callback_data="period_today"),
-                        InlineKeyboardButton("7 дней", callback_data="period_7days"),
-                        InlineKeyboardButton("За месяц", callback_data="period_month")
-                    ],
+                    [InlineKeyboardButton("Сегодня", callback_data="period_today"),
+                     InlineKeyboardButton("7 дней", callback_data="period_7days"),
+                     InlineKeyboardButton("За месяц", callback_data="period_month")],
                     [InlineKeyboardButton("Свой период", callback_data="period_custom")],
                     [InlineKeyboardButton("Назад", callback_data="back_menu")]
                 ])
@@ -487,7 +486,7 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
 # ------------------------------
-# Reply-хэндлер для текстовых команд
+# Хэндлер Reply-кнопок
 # ------------------------------
 async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(1)
@@ -502,11 +501,9 @@ async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     if text == "📊 Получить статистику":
         kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("Сегодня", callback_data="period_today"),
-                InlineKeyboardButton("7 дней", callback_data="period_7days"),
-                InlineKeyboardButton("За месяц", callback_data="period_month")
-            ],
+            [InlineKeyboardButton("Сегодня", callback_data="period_today"),
+             InlineKeyboardButton("7 дней", callback_data="period_7days"),
+             InlineKeyboardButton("За месяц", callback_data="period_month")],
             [InlineKeyboardButton("Свой период", callback_data="period_custom")],
             [InlineKeyboardButton("Назад", callback_data="back_menu")]
         ])
