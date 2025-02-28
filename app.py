@@ -224,8 +224,8 @@ def build_metrics(clicks, unique_clicks, reg, ftd):
     c2r = (reg/clicks*100) if clicks > 0 else 0
     r2d = (ftd/reg*100) if reg > 0 else 0
     c2d = (ftd/clicks*100) if clicks > 0 else 0
-    epc = (conf_payout/clicks) if clicks > 0 else 0
-    uepc = (conf_payout/unique_clicks) if unique_clicks > 0 else 0
+    epc = (payout/clicks) if clicks > 0 else 0
+    uepc = (payout/unique_clicks) if unique_clicks > 0 else 0
     return (
         "🎯 <b>Метрики:</b>\n\n"
         f"• <b>C2R</b> = {c2r:.2f}%\n"
