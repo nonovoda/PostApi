@@ -86,7 +86,7 @@ async def init_telegram_app():
 async def process_postback_data(data: dict):
     logger.debug(f"Postback data: {data}")
     offer_id = data.get("offer_id", "N/A")
-    sub_id2  = data.get("sub_id2", "N/A")
+    sub_id3  = data.get("sub_id3", "N/A")
     goal     = data.get("goal", "N/A")
     revenue  = data.get("revenue", "N/A")
     currency = data.get("currency", "USD")
