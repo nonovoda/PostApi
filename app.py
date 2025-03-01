@@ -98,7 +98,7 @@ async def process_postback_data(data: dict):
     msg = (
         "🔔 <b>Новая конверсия!</b>\n\n"
         f"<b>📌 Оффер:</b> <i>{offer_id}</i>\n"
-        f"<b>🛠 Подход:</b> <i>{sub_id2}</i>\n"
+        f"<b>🛠 Подход:</b> <i>{sub_id3}</i>\n"
         f"<b>📊 Тип конверсии:</b> <i>{goal}</i>\n"
         f"<b>💰 Выплата:</b> <i>{revenue} {currency}</i>\n"
         f"<b>⚙️ Статус:</b> <i>{status}</i>\n"
