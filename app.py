@@ -39,7 +39,7 @@ telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 # Главное меню (Reply-кнопки)
 # ------------------------------
 def get_main_menu():
-    # Главный inline-меню теперь не отправляется отдельно, чтобы не засорять чат.
+    # Главное меню используется для переходов, но мы не отправляем лишние сообщения, чтобы не засорять чат.
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton("📊 Получить статистику"), KeyboardButton("ЛК ПП")],
@@ -86,19 +86,19 @@ async def init_telegram_app():
 async def process_postback_data(data: dict):
     logger.debug(f"Postback data: {data}")
     offer_id = data.get("offer_id", "N/A")
-    sub_id3  = data.get("sub_id3", "N/A")
-    goal     = data.get("goal", "N/A")
-    revenue  = data.get("revenue", "N/A")
+    sub_id2 = data.get("sub_id2", "N/A")
+    goal = data.get("goal", "N/A")
+    revenue = data.get("revenue", "N/A")
     currency = data.get("currency", "USD")
-    status   = data.get("status", "N/A")
-    sub_id4  = data.get("sub_id4", "N/A")
-    sub_id5  = data.get("sub_id5", "N/A")
-    cdate    = data.get("conversion_date", "N/A")
+    status = data.get("status", "N/A")
+    sub_id4 = data.get("sub_id4", "N/A")
+    sub_id5 = data.get("sub_id5", "N/A")
+    cdate = data.get("conversion_date", "N/A")
 
     msg = (
         "🔔 <b>Новая конверсия!</b>\n\n"
         f"<b>📌 Оффер:</b> <i>{offer_id}</i>\n"
-        f"<b>🛠 Подход:</b> <i>{sub_id3}</i>\n"
+        f"<b>🛠 Подход:</b> <i>{sub_id2}</i>\n"
         f"<b>📊 Тип конверсии:</b> <i>{goal}</i>\n"
         f"<b>💰 Выплата:</b> <i>{revenue} {currency}</i>\n"
         f"<b>⚙️ Статус:</b> <i>{status}</i>\n"
@@ -219,14 +219,17 @@ def build_stats_text(label, date_label, clicks, unique_clicks, reg_count, ftd_co
     )
 
 # ------------------------------
-# Формирование метрик (Новые формулы: EPC = Доход/клики, uEPC = Доход/уникальные клики)
+# Формирование метрик (Новые формулы)
+# EPC = Доход / клики, uEPC = Доход / уникальные клики,
+# FD2RD = (RD / FTD) * 100
 # ------------------------------
-def build_metrics(clicks, unique_clicks, reg, ftd, conf_payout):
+def build_metrics(clicks, unique_clicks, reg, ftd, conf_payout, rd):
     c2r = (reg / clicks * 100) if clicks > 0 else 0
     r2d = (ftd / reg * 100) if reg > 0 else 0
     c2d = (ftd / clicks * 100) if clicks > 0 else 0
     epc = (conf_payout / clicks) if clicks > 0 else 0
     uepc = (conf_payout / unique_clicks) if unique_clicks > 0 else 0
+    fd2rd = (rd / ftd * 100) if ftd > 0 else 0
     return (
         "🎯 <b>Метрики:</b>\n\n"
         f"• <b>C2R</b> = {c2r:.2f}%\n"
@@ -234,6 +237,7 @@ def build_metrics(clicks, unique_clicks, reg, ftd, conf_payout):
         f"• <b>C2D</b> = {c2d:.2f}%\n\n"
         f"• <b>EPC</b> = {epc:.3f} USD\n"
         f"• <b>uEPC</b> = {uepc:.3f} USD\n"
+        f"• <b>FD2RD</b> = {fd2rd:.2f}%\n"
     )
 
 # ------------------------------
@@ -309,8 +313,9 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uc_ = store["unique"]
         r_ = store["reg"]
         f_ = store["ftd"]
+        rd_ = store["rd"]
         confp = store["confp"]
-        metrics_txt = build_metrics(c_, uc_, r_, f_, confp)
+        metrics_txt = build_metrics(c_, uc_, r_, f_, confp, rd_)
         final_txt = base_text + "\n" + metrics_txt
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("Скрыть метрики", callback_data=f"hide|{uniq_id}")],
@@ -403,7 +408,7 @@ async def show_stats_screen(query, context, date_from: str, date_to: str, label:
     await query.edit_message_text(base_text, parse_mode="HTML", reply_markup=kb)
 
 # ------------------------------
-# FakeQ класс (для имитации CallbackQuery)
+# FakeQ класс для имитации CallbackQuery
 # ------------------------------
 class FakeQ:
     def __init__(self, msg_id, chat_id):
@@ -455,7 +460,6 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                     logger.error(f"Ошибка при возврате в меню периодов: {e}")
             await update.stop()
             return
-
         parts = txt.split(",")
         if len(parts) != 2:
             await update.message.reply_text("❗ Формат: YYYY-MM-DD,YYYY-MM-DD или 'Назад'")
@@ -472,21 +476,18 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("❗ Начальная дата больше конечной.")
             await update.stop()
             return
-
         context.user_data["awaiting_period"] = False
         inline_id = context.user_data["inline_msg_id"]
-
         date_from = f"{st_d} 00:00"
         date_to = f"{ed_d} 23:59"
         lbl = "Свой период"
-
         fquery = FakeQ(inline_id, update.effective_chat.id)
         await show_stats_screen(fquery, context, date_from, date_to, lbl)
         await update.stop()
         return
 
 # ------------------------------
-# Хэндлер Reply-кнопок
+# Reply-хэндлер для текстовых команд
 # ------------------------------
 async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(1)
