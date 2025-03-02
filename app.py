@@ -234,8 +234,8 @@ def build_metrics(clicks, unique_clicks, reg, ftd, conf_payout, rd):
         "🎯 <b>Метрики:</b>\n\n"
         f"• <b>C2R</b> = {c2r:.2f}%\n"
         f"• <b>R2D</b> = {r2d:.2f}%\n"
-        f"• <b>C2D</b> = {c2d:.2f}%\n\n"
-        f"• <b>FD2RD</b> = {fd2rd:.2f}%\n"
+        f"• <b>C2D</b> = {c2d:.2f}%\n"
+        f"• <b>FD2RD</b> = {fd2rd:.2f}%\n\n"
         f"• <b>EPC</b> = {epc:.3f} USD\n"
         f"• <b>uEPC</b> = {uepc:.3f} USD\n"
     )
