@@ -22,9 +22,7 @@ from telegram.ext import (
 )
 from pydantic import BaseModel, ValidationError
 
-# ------------------------------
 # Конфигурация
-# ------------------------------
 API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 BASE_API_URL = "https://4rabet.api.alanbase.com/v1"
@@ -47,9 +45,7 @@ PERIOD_INPUT_INSTRUCTIONS = (
 BACK_BUTTON_TEXT = "Назад"
 MAIN_MENU_TEXT = "Главное меню"
 
-# ------------------------------
 # Главное меню (Reply-кнопки)
-# ------------------------------
 MAIN_MENU = ReplyKeyboardMarkup(
     [
         [KeyboardButton("📊 Получить статистику"), KeyboardButton("ЛК ПП")],
@@ -62,16 +58,29 @@ MAIN_MENU = ReplyKeyboardMarkup(
 def get_main_menu():
     return MAIN_MENU
 
-# ------------------------------
 # Валидация дат через Pydantic
-# ------------------------------
 class Period(BaseModel):
     start: str
     end: str
 
-# ------------------------------
-# Webhook (Telegram + Postback)
-# ------------------------------
+# Удаление сообщения с обработкой ошибок
+async def try_delete_message(update):
+    try:
+        await update.message.delete()
+    except Exception as e:
+        logger.error(f"Не удалось удалить сообщение: {e}")
+
+# Инициализация Telegram
+async def init_telegram_app():
+    if not TELEGRAM_TOKEN:
+        logger.critical("TELEGRAM_TOKEN не задан в переменных окружения")
+        return
+    logger.info("Инициализация Telegram-бота...")
+    await telegram_app.initialize()
+    await telegram_app.start()
+    logger.info("Telegram-бот запущен!")
+
+# Webhook обработчики
 @app.get("/webhook")
 async def verify_webhook():
     return {"status": "ok"}
@@ -90,37 +99,14 @@ async def webhook_handler(request: Request):
         logger.error(f"Ошибка вебхука: {e}")
         return {"status": "error"}, 500
 
-# ------------------------------
-# Инициализация Telegram
-# ------------------------------
-async def init_telegram_app():
-    if not TELEGRAM_TOKEN:
-        logger.critical("TELEGRAM_TOKEN не задан в переменных окружения")
-        return
-    logger.info("Инициализация Telegram-бота...")
-    await telegram_app.initialize()
-    await telegram_app.start()
-    logger.info("Telegram-бот запущен!")
-
-# ------------------------------
-# Удаление сообщения с обработкой ошибок
-# ------------------------------
-async def try_delete_message(update):
-    try:
-        await update.message.delete()
-    except Exception as e:
-        logger.error(f"Не удалось удалить сообщение: {e}")
-
-# ------------------------------
 # Postback (конверсия)
-# ------------------------------
 async def process_postback_data(data: dict):
     logger.debug(f"Postback data: {data}")
     offer_id = data.get("offer_id", "N/A")
     sub_id3 = data.get("sub_id3", "N/A")
     goal = data.get("goal", "N/A")
     revenue = data.get("revenue", "N/A")
-    currency = data.get("currency", "USD")
+    currency = data.get("currency", data.get("currency", "USD"))
     status = data.get("status", "N/A")
     sub_id4 = data.get("sub_id4", "N/A")
     sub_id5 = data.get("sub_id5", "N/A")
@@ -153,9 +139,7 @@ async def process_postback_data(data: dict):
         logger.exception("Ошибка отправки postback")
         return {"error": "не удалось отправить сообщение"}, 500
 
-# ------------------------------
 # /start
-# ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await try_delete_message(update)
     await update.message.reply_text(
@@ -164,9 +148,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=get_main_menu()
     )
 
-# ------------------------------
 # Агрегация для /common (group_by=day)
-# ------------------------------
 async def get_common_data_aggregated(date_from: str, date_to: str):
     try:
         logger.info(f"Запрос к /common для периода {date_from} - {date_to}")
@@ -208,17 +190,25 @@ async def get_common_data_aggregated(date_from: str, date_to: str):
         "conf_payout": s_pay
     }
 
-# ------------------------------
 # Агрегация для /conversions (registration, ftd, rdeposit)
-# ------------------------------
 async def get_rfr_aggregated(date_from: str, date_to: str):
+    base_params = [
+        ("timezone", "Europe/Moscow"),
+        ("date_from", date_from),
+        ("date_to", date_to),
+        ("per_page", "500"),
+        ("group_by", "day")
+    ]
+    for g in ["registration", "ftd", "rdeposit"]:
+        base_params.append(("goal_keys[]", g))
+    
     try:
         logger.info(f"Запрос к /conversions для периода {date_from} - {date_to}")
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(
                 f"{BASE_API_URL}/partner/statistic/conversions",
                 headers={"API-KEY": API_KEY},
-                params=base_params
+                params=dict(base_params)
             )
             resp.raise_for_status()
     except httpx.HTTPError as e:
@@ -232,11 +222,9 @@ async def get_rfr_aggregated(date_from: str, date_to: str):
             out[g] += 1
     return True, out
 
-# ------------------------------
-# Формирование метрик через функцию
-# ------------------------------
+# Формирование метрик
 def calculate_metrics(clicks, unique, reg, ftd, rd, payout):
-    metrics = {
+    return {
         "C2R": (reg / clicks * 100) if clicks else 0,
         "R2D": (ftd / reg * 100) if reg else 0,
         "C2D": (ftd / clicks * 100) if clicks else 0,
@@ -244,17 +232,26 @@ def calculate_metrics(clicks, unique, reg, ftd, rd, payout):
         "EPC": (payout / clicks) if clicks else 0,
         "uEPC": (payout / unique) if unique else 0,
     }
-    return metrics
 
-def build_metrics(metrics_dict):
+def build_stats_text(label, date_label, clicks, unique, reg, ftd, rd, conf_count, conf_payout):
     return (
-        "🎯 Метрики:\n\n" + 
-        "\n".join(f"• {k} = {v:.2f}%" for k, v in metrics_dict.items())
+        f"📊 <b>Статистика</b> ({label})\n\n"
+        f"🗓 <b>Период:</b> <i>{date_label}</i>\n\n"
+        f"👁 <b>Клики:</b> <i>{clicks}</i> (уник: {unique})\n"
+        f"🆕 <b>Регистрации:</b> <i>{reg}</i>\n"
+        f"💵 <b>FTD:</b> <i>{ftd}</i>\n"
+        f"🔄 <b>RD:</b> <i>{rd}</i>\n\n"
+        f"✅ <b>Конверсии:</b> <i>{conf_count}</i>\n"
+        f"💰 <b>Доход:</b> <i>{conf_payout:.2f} USD</i>\n"
     )
 
-# ------------------------------
-# Показ статистики с параллельной агрегацией
-# ------------------------------
+def build_metrics_text(metrics_dict):
+    return (
+        "🎯 <b>Метрики:</b>\n\n" + 
+        "\n".join(f"• <b>{k}</b> = {v:.2f}%" for k, v in metrics_dict.items())
+    )
+
+# Показ статистики
 async def show_stats_screen(query, context, date_from, date_to, label):
     async def fetch_common():
         return await get_common_data_aggregated(date_from, date_to)
@@ -283,16 +280,7 @@ async def show_stats_screen(query, context, date_from, date_to, label):
     rd = rdata["rdeposit"]
     
     date_lbl = f"{date_from[:10]} .. {date_to[:10]}"
-    base_text = (
-        f"📊 <b>Статистика</b> ({label})\n\n"
-        f"🗓 <b>Период:</b> <i>{date_lbl}</i>\n\n"
-        f"👁 <b>Клики:</b> <i>{cc}</i> (уник: {uc})\n"
-        f"🆕 <b>Регистрации:</b> <i>{reg}</i>\n"
-        f"💵 <b>FTD:</b> <i>{ftd}</i>\n"
-        f"🔄 <b>RD:</b> <i>{rd}</i>\n\n"
-        f"✅ <b>Конверсии:</b> <i>{confc}</i>\n"
-        f"💰 <b>Доход:</b> <i>{confp:.2f} USD</i>\n"
-    )
+    base_text = build_stats_text(label, date_lbl, cc, uc, reg, ftd, rd, confc, confp)
     
     if "stats_store" not in context.user_data:
         context.user_data["stats_store"] = {}
@@ -319,9 +307,7 @@ async def show_stats_screen(query, context, date_from, date_to, label):
     
     await query.edit_message_text(base_text, parse_mode="HTML", reply_markup=kb)
 
-# ------------------------------
 # Хэндлер ввода дат (Свой период)
-# ------------------------------
 async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_period"):
         return
@@ -332,8 +318,8 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     logger.info(f"Ввод периода: {txt}")
     
     if txt.lower() == "назад":
-        context.user_data["awaiting_period"] = False
-        inline_id = context.user_data.get("inline_msg_id")
+        context.user_data.pop("awaiting_period", None)
+        inline_id = context.user_data.pop("inline_msg_id", None)
         if inline_id:
             kb = InlineKeyboardMarkup([
                 [
@@ -351,14 +337,16 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 parse_mode="HTML",
                 reply_markup=kb
             )
-        context.user_data.pop("inline_msg_id", None)
         return
     
     try:
-        period = Period(**{k:v.strip() for k,v in zip(["start","end"], txt.split(","))})
-    except ValidationError:
+        parts = txt.split(",")
+        if len(parts) != 2:
+            raise ValueError("Неверное количество дат")
+        period = Period(start=parts[0].strip(), end=parts[1].strip())
+    except (ValidationError, ValueError):
         await update.message.reply_text("❗ Неверный формат даты (YYYY-MM-DD).")
-        context.user_data["awaiting_period"] = False
+        context.user_data.pop("awaiting_period", None)
         return
     
     try:
@@ -366,15 +354,15 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         ed_d = datetime.strptime(period.end, "%Y-%m-%d").date()
     except ValueError:
         await update.message.reply_text("❗ Неверный формат даты.")
-        context.user_data["awaiting_period"] = False
+        context.user_data.pop("awaiting_period", None)
         return
     
     if st_d > ed_d:
         await update.message.reply_text("❗ Начальная дата больше конечной.")
-        context.user_data["awaiting_period"] = False
+        context.user_data.pop("awaiting_period", None)
         return
     
-    context.user_data["awaiting_period"] = False
+    context.user_data.pop("awaiting_period", None)
     inline_id = context.user_data.pop("inline_msg_id", None)
     
     if not inline_id:
@@ -392,9 +380,7 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         fquery = FakeQ(inline_id, chat_id)
         await show_stats_screen(fquery, context, date_from, date_to, lbl)
 
-# ------------------------------
 # Управление состоянием через TTL
-# ------------------------------
 def clean_stats_store(context):
     now = datetime.now()
     to_remove = []
@@ -404,9 +390,7 @@ def clean_stats_store(context):
     for key in to_remove:
         del context.user_data["stats_store"][key]
 
-# ------------------------------
 # Reply-хэндлер для текстовых команд
-# ------------------------------
 async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     known_commands = ["📊 Получить статистику", "ЛК ПП", "⬅️ Назад"]
@@ -433,9 +417,7 @@ async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     elif text == "⬅️ Назад":
         await update.message.reply_text(MAIN_MENU_TEXT, reply_markup=get_main_menu())
 
-# ------------------------------
 # Inline-хэндлер для кнопок
-# ------------------------------
 async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -472,6 +454,7 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(PERIOD_INPUT_INSTRUCTIONS, parse_mode="HTML", reply_markup=kb)
         context.user_data["awaiting_period"] = True
         context.user_data["inline_msg_id"] = query.message.message_id
+        return
     
     if data == "back_periods":
         kb = InlineKeyboardMarkup([
@@ -492,7 +475,7 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❗ Данные не найдены", parse_mode="HTML")
             return
         base_text = store["base_text"]
-        metrics_dict = calculate_metrics(
+        metrics = calculate_metrics(
             store["clicks"],
             store["unique"],
             store["reg"],
@@ -500,7 +483,7 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             store["rd"],
             store["confp"]
         )
-        metrics_txt = build_metrics(metrics_dict)
+        metrics_txt = build_metrics_text(metrics)
         final_txt = base_text + "\n" + metrics_txt
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("Скрыть метрики", callback_data=f"hide|{uniq_id}")],
@@ -529,39 +512,39 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not store:
             await query.edit_message_text("❗ Данные не найдены", parse_mode="HTML")
             return
-        await show_stats_screen(query, context, store["date_from"], store["date_to"], store["label"])
-    
-    if data == "back_menu":
-        await query.edit_message_text("Главное меню", parse_mode="HTML")
-        await query.message.reply_text("Главное меню:", parse_mode="HTML", reply_markup=get_main_menu())
+        await show_stats_screen(
+            query,
+            context,
+            store["date_from"],
+            store["date_to"],
+            store["label"]
+        )
 
-# ------------------------------
-# FakeQ класс
-# ------------------------------
+# FakeQ класс для редактирования сообщений
 class FakeQ:
     def __init__(self, message_id: int, chat_id: int):
         self.message_id = message_id
         self.chat_id = chat_id
     
-    async def edit_message_text(self, *args, **kwargs):
-        return await telegram_app.bot.edit_message_text(
+    async def edit_message_text(self, text: str, **kwargs):
+        await telegram_app.bot.edit_message_text(
             chat_id=self.chat_id,
             message_id=self.message_id,
-            *args, **kwargs
+            text=text,
+            **kwargs
         )
 
-# ------------------------------
 # Регистрация хэндлеров
-# ------------------------------
 telegram_app.add_handler(CommandHandler("start", start_command))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, period_text_handler), group=1)
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_button_handler), group=2)
 telegram_app.add_handler(CallbackQueryHandler(inline_handler))
 
-# ------------------------------
-# Запуск приложения
-# ------------------------------
+# Корректный запуск приложения
+async def main():
+    await init_telegram_app()
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
+
 if __name__ == "__main__":
     import uvicorn
-    asyncio.run(init_telegram_app())
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    asyncio.run(main())
