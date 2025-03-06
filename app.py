@@ -412,6 +412,8 @@ async def show_stats_screen(query, context, date_from: str, date_to: str, label:
 # ------------------------------
 # Хэндлер ввода дат (Свой период)
 # ------------------------------
+# ... (остальной код остался без изменений)
+
 async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_period"):
         return
@@ -465,13 +467,27 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data["awaiting_period"] = False
         return
     
+    # Корректный ввод: обновляем статистику
     context.user_data["awaiting_period"] = False
     inline_id = context.user_data.pop("inline_msg_id", None)
+    
+    # Убедимся, что inline_id существует
+    if not inline_id:
+        await update.message.reply_text("❗ Не удалось найти сообщение для обновления.")
+        return
+    
     date_from = f"{st_d} 00:00"
     date_to = f"{ed_d} 23:59"
     lbl = "Свой период"
-    fquery = FakeQ(inline_id, update.effective_chat.id)
-    await show_stats_screen(fquery, context, date_from, date_to, lbl)
+    
+    # Используем chat_id из текущего сообщения для редактирования
+    chat_id = update.effective_chat.id
+    try:
+        await show_stats_screen(update.callback_query, context, date_from, date_to, lbl)
+    except AttributeError:
+        # Если это не callback_query, создаем FakeQ с chat_id и inline_id
+        fquery = FakeQ(inline_id, chat_id)
+        await show_stats_screen(fquery, context, date_from, date_to, lbl)
 # ------------------------------
 # Reply-хэндлер для текстовых команд
 # ------------------------------
