@@ -415,12 +415,15 @@ async def show_stats_screen(query, context, date_from: str, date_to: str, label:
 async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_period"):
         return
+    
     try:
         await update.message.delete()
     except Exception as e:
         logger.error(f"Не удалось удалить сообщение: {e}")
     
     txt = update.message.text.strip()
+    logger.info(f"Ввод периода: {txt}")
+    
     if txt.lower() == "назад":
         context.user_data["awaiting_period"] = False
         inline_id = context.user_data.get("inline_msg_id")
@@ -432,21 +435,21 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 [InlineKeyboardButton("Свой период", callback_data="period_custom")],
                 [InlineKeyboardButton("Назад", callback_data="back_menu")]
             ])
-            try:
-                await telegram_app.bot.edit_message_text(
-                    chat_id=update.effective_chat.id,
-                    message_id=inline_id,
-                    text="Выберите период:",
-                    parse_mode="HTML",
-                    reply_markup=kb
-                )
-            except Exception as e:
-                logger.error(f"Ошибка при возврате в меню периодов: {e}")
+            await telegram_app.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=inline_id,
+                text="Выберите период:",
+                parse_mode="HTML",
+                reply_markup=kb
+            )
+        context.user_data.pop("inline_msg_id", None)
+        context.user_data["awaiting_period"] = False
         return
     
     parts = txt.split(",")
     if len(parts) != 2:
         await update.message.reply_text("❗ Формат: YYYY-MM-DD,YYYY-MM-DD или 'Назад'")
+        context.user_data["awaiting_period"] = False
         return
     
     try:
@@ -454,10 +457,12 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         ed_d = datetime.strptime(parts[1].strip(), "%Y-%m-%d").date()
     except:
         await update.message.reply_text("❗ Ошибка разбора дат.")
+        context.user_data["awaiting_period"] = False
         return
     
     if st_d > ed_d:
         await update.message.reply_text("❗ Начальная дата больше конечной.")
+        context.user_data["awaiting_period"] = False
         return
     
     context.user_data["awaiting_period"] = False
@@ -467,7 +472,6 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     lbl = "Свой период"
     fquery = FakeQ(inline_id, update.effective_chat.id)
     await show_stats_screen(fquery, context, date_from, date_to, lbl)
-
 # ------------------------------
 # Reply-хэндлер для текстовых команд
 # ------------------------------
