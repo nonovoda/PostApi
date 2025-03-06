@@ -492,12 +492,17 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 # Reply-хэндлер для текстовых команд
 # ------------------------------
 async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    known_commands = ["📊 Получить статистику", "ЛК ПП", "⬅️ Назад"]
+    
+    if text not in known_commands:
+        return  # Игнорируем неизвестные команды
+    
     try:
         await update.message.delete()
     except Exception as e:
         logger.error(f"Не удалось удалить сообщение: {e}")
     
-    text = update.message.text.strip()
     if text == "ЛК ПП":
         link = "Ваш личный кабинет: https://cabinet.4rabetpartner.com/statistics"
         await update.message.reply_text(link, parse_mode="HTML", reply_markup=get_main_menu())
