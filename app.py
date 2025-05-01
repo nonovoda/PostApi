@@ -315,7 +315,7 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "back_menu":
         # ... код для кнопки "Назад" ...
 
-  elif data in ["period_today", "period_7days", "period_month"]:
+      elif data in ["period_today", "period_7days", "period_month"]:
         if data == "period_today":
             d_str = datetime.now().strftime("%Y-%m-%d")
             date_from = f"{d_str} 00:00"
@@ -333,9 +333,10 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             date_from = f"{start_} 00:00"
             date_to = f"{end_} 23:59"
             label = "Последние 30 дней"
-        
+
         await show_stats_screen(query, context, date_from, date_to, label)
         return
+
 
     if data in ["period_today", "period_7days", "period_month"]:
         if data == "period_today":
