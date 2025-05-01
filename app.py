@@ -7,12 +7,19 @@ import json
 import uuid
 from fastapi import FastAPI, Request
 from telegram import (
-    Update, ReplyKeyboardMarkup, KeyboardButton,
-    InlineKeyboardButton, InlineKeyboardMarkup
+    Update,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
 )
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    CallbackQueryHandler, filters, ContextTypes
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+    ContextTypes
 )
 
 # ------------------------------
@@ -31,13 +38,15 @@ app = FastAPI()
 telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 
 # ------------------------------
-# Система контроля доступа
+# 🔒 СИСТЕМА КОНТРОЛЯ ДОСТУПА
 # ------------------------------
 async def check_access(update: Update) -> bool:
+    """Проверяет доступ по chat_id"""
     try:
-        current = int(update.effective_chat.id)
-        allowed = int(TELEGRAM_CHAT_ID.strip())
-        if current != allowed:
+        current_id = int(update.effective_chat.id)
+        allowed_id = int(TELEGRAM_CHAT_ID.strip())
+        logger.debug(f"Проверка доступа: {current_id} vs {allowed_id}")
+        if current_id != allowed_id:
             if update.message:
                 await update.message.delete()
                 await update.message.reply_text("⛔ Доступ запрещён")
@@ -50,172 +59,255 @@ async def check_access(update: Update) -> bool:
         return False
 
 # ------------------------------
-# Клавиатуры
+# Универсальные клавиатуры
 # ------------------------------
-def get_main_menu():
+def main_menu():
     return ReplyKeyboardMarkup(
         [[KeyboardButton("📊 Получить статистику"), KeyboardButton("ЛК ПП")],
-         [KeyboardButton("⬅️ Назад")]], resize_keyboard=True
+         [KeyboardButton("⬅️ Назад")]],
+        resize_keyboard=True
     )
 
-def get_periods_keyboard(back_key="back_menu"):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Сегодня", callback_data="period_today"),
-         InlineKeyboardButton("7 дней", callback_data="period_7days"),
-         InlineKeyboardButton("За месяц", callback_data="period_month")],
-        [InlineKeyboardButton("Свой период", callback_data="period_custom")],
-        [InlineKeyboardButton("Назад", callback_data=back_key)]
-    ])
+_periods_kb = [
+    [InlineKeyboardButton("Сегодня", callback_data="period_today"),
+     InlineKeyboardButton("7 дней", callback_data="period_7days"),
+     InlineKeyboardButton("За месяц", callback_data="period_month")],
+    [InlineKeyboardButton("Свой период", callback_data="period_custom")],
+]
 
-def get_metrics_keyboard(uniq_id: str):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✨ Рассчитать метрики", callback_data=f"metrics|{uniq_id}")],
-        [InlineKeyboardButton("Обновить", callback_data=f"update|{uniq_id}"),
-         InlineKeyboardButton("Назад", callback_data="back_periods")]
-    ])
+def periods_keyboard(back_key="back_menu"):
+    kb = _periods_kb.copy()
+    kb.append([InlineKeyboardButton("Назад", callback_data=back_key)])
+    return InlineKeyboardMarkup(kb)
+
+_metrics_buttons = lambda uid: [
+    [InlineKeyboardButton("✨ Рассчитать метрики", callback_data=f"metrics|{uid}")],
+    [InlineKeyboardButton("Обновить", callback_data=f"update|{uid}"),
+     InlineKeyboardButton("Назад", callback_data="back_periods")]
+]
+
+def metrics_keyboard(uid):
+    return InlineKeyboardMarkup(_metrics_buttons(uid))
 
 # ------------------------------
 # Инициализация Telegram
 # ------------------------------
-async def init_telegram_app():
-    logger.info("Инициализация Telegram-бота...")
+async def init_telegram():
+    logger.info("Запуск Telegram бота...")
     await telegram_app.initialize()
     await telegram_app.start()
-    logger.info("Telegram-бот запущен!")
+    logger.info("Telegram бот запущен")
 
 # ------------------------------
-# Вебхук и постбек
+# Webhook и Postback
 # ------------------------------
-@app.api_route("/webhook", methods=["GET", "POST"])
-async def webhook_handler(request: Request):
+@app.api_route("/webhook", methods=["GET","POST"])
+async def webhook(request: Request):
     if request.method == "GET":
-        return await process_postback_data(dict(request.query_params))
+        return await process_postback(dict(request.query_params))
     data = await request.json()
     if "update_id" in data:
         update = Update.de_json(data, telegram_app.bot)
-        if not await check_access(update):
-            return {"status": "access_denied"}
+        if not await check_access(update): return {"status":"denied"}
         if not telegram_app.running:
-            await init_telegram_app()
+            await init_telegram()
         await telegram_app.process_update(update)
-        return {"status": "ok"}
-    return await process_postback_data(data)
+        return {"status":"ok"}
+    return await process_postback(data)
 
-async def process_postback_data(data: dict):
-    offer = data.get("offer_id", "N/A")
-    goal = data.get("goal", "N/A")
-    revenue = data.get("revenue", "N/A")
-    sub3 = data.get("sub_id3", "N/A")
+async def process_postback(data: dict):
+    logger.debug(f"Postback: {data}")
+    fields = ["offer_id","sub_id3","goal","revenue","currency",
+              "status","sub_id4","sub_id5","conversion_date"]
+    vals = {f:data.get(f,"N/A") for f in fields}
     msg = (
-        f"🔔 <b>Новая конверсия!</b>\n\n"
-        f"<b>📌 Оффер:</b> <i>{offer}</i>\n"
-        f"<b>🛠 Подход:</b> <i>{sub3}</i>\n"
-        f"<b>📊 Тип:</b> <i>{goal}</i>\n"
-        f"<b>💰 Выплата:</b> <i>{revenue}</i>"
+        f"🔔 <b>Новая конверсия!</b>\n"
+        f"📌 <i>Оффер:</i> {vals['offer_id']}\n"
+        f"🛠 <i>Подход:</i> {vals['sub_id3']}\n"
+        f"📊 <i>Тип:</i> {vals['goal']}\n"
+        f"💰 <i>Выплата:</i> {vals['revenue']} {vals['currency']}\n"
+        f"⚙️ <i>Статус:</i> {vals['status']}\n"
+        f"🎯 <i>Кампания:</i> {vals['sub_id4']}\n"
+        f"🎯 <i>Адсет:</i> {vals['sub_id5']}\n"
+        f"⏰ <i>Время:</i> {vals['conversion_date']}"
     )
     try:
-        await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg, parse_mode="HTML")
-        return {"status": "ok"}
+        await telegram_app.bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID, text=msg, parse_mode="HTML"
+        )
+        return {"status":"ok"}
     except Exception as e:
-        logger.error(f"Ошибка постбека: {e}")
-        return {"status": "error"}
+        logger.error(f"Postback send error: {e}")
+        return {"status":"error"}
 
 # ------------------------------
 # Команды
 # ------------------------------
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_access(update): return
-    await update.message.reply_text("Привет! Выберите команду:", reply_markup=get_main_menu())
+    await update.message.reply_text("Привет!", reply_markup=main_menu())
 
 async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    if text == "📊 Получить статистику":
-        await update.message.reply_text("Выберите период:", reply_markup=get_periods_keyboard())
-    elif text == "ЛК ПП":
-        await update.message.reply_text("https://cabinet.4rabetpartner.com/statistics", reply_markup=get_main_menu())
-    elif text == "⬅️ Назад":
-        await update.message.reply_text("Главное меню:", reply_markup=get_main_menu())
+    if not await check_access(update): return
+    txt = update.message.text
+    if txt == "📊 Получить статистику":
+        await update.message.reply_text("Выберите период:", reply_markup=periods_keyboard())
+    elif txt == "ЛК ПП":
+        await update.message.reply_text("https://cabinet.4rabetpartner.com/statistics", reply_markup=main_menu())
+    elif txt == "⬅️ Назад":
+        await update.message.reply_text("Главное меню:", reply_markup=main_menu())
 
 # ------------------------------
-# Вспомогательные функции
+# Вспомогательное: даты по ключу
 # ------------------------------
-def get_dates(period: str):
+def get_period_range(key: str):
     today = datetime.now().date()
-    if period == "period_today": return today, today, "Сегодня"
-    if period == "period_7days": return today - timedelta(days=6), today, "Последние 7 дней"
-    if period == "period_month": return today - timedelta(days=29), today, "Последние 30 дней"
+    if key == "period_today": return today, today, "Сегодня"
+    if key == "period_7days": return today - timedelta(days=6), today, "Последние 7 дней"
+    if key == "period_month": return today - timedelta(days=29), today, "Последние 30 дней"
     return None, None, None
 
 # ------------------------------
 # Запросы к API
 # ------------------------------
-async def get_common(date_from: str, date_to: str):
-    params = {"group_by": "day", "timezone": "Europe/Moscow",
-              "date_from": date_from, "date_to": date_to, "currency_code": "USD"}
-    async with httpx.AsyncClient() as client:
-        r = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY": API_KEY}, params=params)
-    data = r.json().get("data", [])
-    return {
-        "click_count": sum(int(i.get("click_count",0)) for i in data),
-        "click_unique": sum(int(i.get("click_unique_count",0)) for i in data),
-        "conf_count": sum(int(i.get("conversions",{}).get("confirmed",{}).get("count",0)) for i in data),
-        "conf_payout": sum(float(i.get("conversions",{}).get("confirmed",{}).get("payout",0)) for i in data)
-    }
+async def fetch_common(start: str, end: str):
+    params = {"group_by":"day","timezone":"Europe/Moscow",
+              "date_from":start,"date_to":end,"currency_code":"USD"}
+    async with httpx.AsyncClient(timeout=30) as c:
+        resp = await c.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY":API_KEY}, params=params)
+    data = resp.json().get("data",[])
+    clicks = sum(int(i.get("click_count",0)) for i in data)
+    unique = sum(int(i.get("click_unique_count",0)) for i in data)
+    conv = sum(int(i.get("conversions",{}).get("confirmed",{}).get("count",0)) for i in data)
+    payout = sum(float(i.get("conversions",{}).get("confirmed",{}).get("payout",0)) for i in data)
+    return clicks, unique, conv, payout
 
-async def get_conversions(date_from: str, date_to: str):
-    out = {"registration":0, "ftd":0, "rdeposit":0}
+async def fetch_conversions(start: str, end: str):
+    out = {"registration":0,"ftd":0,"rdeposit":0}
     page = 1
     while True:
-        params = [("timezone","Europe/Moscow"),("date_from",date_from),("date_to",date_to),
+        params = [("timezone","Europe/Moscow"),("date_from",start),("date_to",end),
                   ("per_page","500"),("page",str(page)),("group_by","day")]
-        for key in out: params.append(("goal_keys[]", key))
-        async with httpx.AsyncClient() as client:
-            r = await client.get(f"{BASE_API_URL}/partner/statistic/conversions", headers={"API-KEY": API_KEY}, params=params)
-        data = r.json().get("data",[])
-        if not data: break
-        for item in data:
-            k = item.get("goal",{}).get("key")
-            if k in out: out[k] += 1
-        page += 1
-    return out
+        for k in out: params.append(("goal_keys[]",k))
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.get(f"{BASE_API_URL}/partner/statistic/conversions", headers={"API-KEY":API_KEY}, params=params)
+        arr = r.json().get("data",[])
+        if not arr: break
+        for it in arr:
+            key = it.get("goal",{}).get("key")
+            if key in out: out[key]+=1
+        page+=1
+    return out["registration"], out["ftd"], out["rdeposit"]
 
 # ------------------------------
-# Обработчик inline
+# Inline Handler
 # ------------------------------
 async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_access(update): return
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    if data in ["period_today","period_7days","period_month"]:
-        start, end, label = get_dates(data)
-        date_from, date_to = f"{start} 00:00", f"{end} 23:59"
-        stats = await get_common(date_from.split()[0], date_to.split()[0])
-        conv = await get_conversions(date_from, date_to)
+    q = update.callback_query
+    await q.answer()
+    data = q.data
+    if data in ("period_today","period_7days","period_month"):
+        st, ed, lbl = get_period_range(data)
+        df, dt = f"{st} 00:00", f"{ed} 23:59"
+        clicks, uniq, conv_count, payout = await fetch_common(df.split()[0], dt.split()[0])
+        reg, ftd, rd = await fetch_conversions(df, dt)
+        date_lbl = f"{st} .. {ed}"
         text = (
-            f"📊 <b>Статистика</b> ({label})\n"
-            f"🗓 <i>{start} .. {end}</i>\n"
-            f"👁 {stats['click_count']} (уник: {stats['click_unique']})\n"
-            f"🆕 Рег.: {conv['registration']} | FTD: {conv['ftd']} | RD: {conv['rdeposit']}\n"
-            f"✅ Конверсии: {stats['conf_count']} | 💰 {stats['conf_payout']:.2f} USD"
+            f"📊 <b>Статистика</b> ({lbl})\n\n"
+            f"🗓 <i>{date_lbl}</i>\n\n"
+            f"👁 <i>Клики:</i> {clicks} (уник: {uniq})\n"
+            f"🆕 <i>Регистрации:</i> {reg}\n"
+            f"💵 <i>FTD:</i> {ftd}\n"
+            f"🔄 <i>RD:</i> {rd}\n\n"
+            f"✅ <i>Конверсии:</i> {conv_count}\n"
+            f"💰 <i>Доход:</i> {payout:.2f} USD"
         )
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=get_metrics_keyboard(str(uuid.uuid4())[:8]))
+        uid = str(uuid.uuid4())[:8]
+        context.user_data.setdefault("stats_store", {})[uid] = {
+            "base_text": text, "clicks": clicks, "unique": uniq,
+            "reg": reg, "ftd": ftd, "rd": rd,
+            "date_from": df, "date_to": dt, "label": lbl,
+            "conf_count": conv_count, "conf_payout": payout
+        }
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=metrics_keyboard(uid))
     elif data == "period_custom":
-        await query.edit_message_text("🗓 Введите период (YYYY-MM-DD,YYYY-MM-DD)", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад",callback_data="back_menu")]]))
+        await q.edit_message_text(
+            "🗓 Введите период (YYYY-MM-DD,YYYY-MM-DD)",
+            parse_mode="HTML", reply_markup=periods_keyboard(back_key="back_periods")
+        )
+        context.user_data["awaiting_period"] = True
+        context.user_data["inline_msg_id"] = q.message.message_id
     elif data == "back_menu":
-        await query.edit_message_text("Выберите период:", reply_markup=get_periods_keyboard())
+        await q.edit_message_text("Выберите период:", reply_markup=periods_keyboard())
+    elif data == "back_periods":
+        await q.edit_message_text("Выберите период:", reply_markup=periods_keyboard())
+    elif data.startswith("metrics|"):
+        uid = data.split("|")[1]
+        store = context.user_data.get("stats_store", {}).get(uid)
+        if not store: return await q.edit_message_text("❗ Данные не найдены")
+        metrics_txt = build_metrics(
+            store['clicks'], store['unique'], store['reg'],
+            store['ftd'], store['conf_payout'], store['rd']
+        )
+        await q.edit_message_text(
+            store['base_text'] + "\n" + metrics_txt,
+            parse_mode="HTML", reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Скрыть метрики", callback_data=f"hide|{uid}")],
+                [InlineKeyboardButton("Обновить", callback_data=f"update|{uid}"),
+                 InlineKeyboardButton("Назад", callback_data="back_periods")]            ])
+        )
+    elif data.startswith("hide|"):
+        uid = data.split("|")[1]
+        base = context.user_data.get("stats_store", {}).get(uid, {}).get('base_text', '')
+        await q.edit_message_text(base, parse_mode="HTML", reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("✨ Рассчитать метрики", callback_data=f"metrics|{uid}" )],
+            [InlineKeyboardButton("Обновить", callback_data=f"update|{uid}"),
+             InlineKeyboardButton("Назад", callback_data="back_periods")]
+        ]))
+    elif data.startswith("update|"):
+        uid = data.split("|")[1]
+        s = context.user_data.get("stats_store", {}).get(uid)
+        if not s: return await q.edit_message_text("❗ Ошибка параметров обновления")
+        await inline_handler(update, context)
+
+# ------------------------------
+# Хэндлер ввода текста (custom period)
+# ------------------------------
+async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_access(update) or not context.user_data.get("awaiting_period"): return
+    txt = update.message.text.strip()
+    msg_id = context.user_data.get("inline_msg_id")
+    try: await update.message.delete()
+    except: pass
+    if txt.lower() == "назад":
+        context.user_data.pop("awaiting_period", None)
+        return await telegram_app.bot.edit_message_text(
+            chat_id=update.effective_chat.id, message_id=msg_id,
+            text="Выберите период:", reply_markup=periods_keyboard()
+        )
+    try:
+        st, ed = [datetime.strptime(d.strip(), "%Y-%m-%d").date() for d in txt.split(",")]
+    except:
+        return await update.message.reply_text("❗ Формат YYYY-MM-DD,YYYY-MM-DD или 'Назад'")
+    if st > ed:
+        return await update.message.reply_text("❗ Начальная дата больше конечной.")
+    df, dt = f"{st} 00:00", f"{ed} 23:59"
+    context.user_data.pop("awaiting_period", None)
+    return await inline_handler(Update.callback_query(update), context)
 
 # ------------------------------
 # Регистрация хэндлеров
 # ------------------------------
-telegram_app.add_handler(CommandHandler("start", start_command))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_handler))
+telegram_app.add_handler(CommandHandler("start", start_cmd))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_handler), group=1)
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, period_text_handler), group=2)
 telegram_app.add_handler(CallbackQueryHandler(inline_handler))
 
 # ------------------------------
-# Запуск
+# Запуск приложения
 # ------------------------------
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
-    loop.create_task(init_telegram_app())
+    loop.create_task(init_telegram())
     import uvicorn; uvicorn.run(app, host="0.0.0.0", port=PORT)
