@@ -43,6 +43,15 @@ app = FastAPI()
 telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 
 # ------------------------------
+# Инициализация Telegram
+# ------------------------------
+async def init_telegram_app():
+    logger.info("Инициализация Telegram-бота...")
+    await telegram_app.initialize()
+    await telegram_app.start()
+    logger.info("Telegram-бот запущен!")
+
+# ------------------------------
 # SQLite: таблица users
 # ------------------------------
 def init_db():
