@@ -117,24 +117,71 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ------------------------------
 # Хэндлер «Запросить доступ»
 # ------------------------------
+# Хэндлер запроса доступа
 async def request_access_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = str(update.effective_user.id)
-    chat = str(update.effective_chat.id)
-    conn = get_db(); cur = conn.cursor()
+    user_id = str(update.effective_user.id)  # ID пользователя
+    chat_id = str(update.effective_chat.id)  # ID чата
+    user_name = update.effective_user.username  # Имя пользователя
+    
+    # Добавляем пользователя в базу данных (запрашивающий доступ)
+    conn = get_db()  # Подключаемся к базе данных
+    cur = conn.cursor()
     cur.execute("""
-        INSERT OR IGNORE INTO users(user_id,chat_id,awaiting_api)
-        VALUES(?,?,1)
-    """, (uid, chat))
-    conn.commit(); conn.close()
-    await update.message.reply_text("✅ Запрос отправлен. Ждите одобрения.")
+        INSERT OR IGNORE INTO users(user_id, chat_id, awaiting_api)
+        VALUES(?, ?, 1)
+    """, (user_id, chat_id))  # Помечаем пользователя как ожидающего доступа
+    conn.commit()
+    conn.close()
+
+    # Отправляем пользователю подтверждение, что запрос на доступ отправлен
+    await update.message.reply_text("✅ Ваш запрос на доступ отправлен. Ожидайте одобрения.")
+
+    # Отправляем сообщение с запросом на одобрение в основной чат (например, к вам)
     kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Одобрить", callback_data=f"access|approve|{uid}"),
-        InlineKeyboardButton("❌ Отклонить", callback_data=f"access|deny|{uid}")
+        InlineKeyboardButton("✅ Одобрить", callback_data=f"access|approve|{user_id}"),
+        InlineKeyboardButton("❌ Отклонить", callback_data=f"access|deny|{user_id}")
     ]])
+
+    # Отправка сообщения в ваш чат с кнопками для одобрения/отклонения
     await telegram_app.bot.send_message(
-        chat_id=TELEGRAM_CHAT_ID,
-        text=f"📥 Новый запрос доступа от @{update.effective_user.username} ({uid})",
+        chat_id=TELEGRAM_CHAT_ID,  # Ваш ID чата, куда отправляется запрос
+        text=f"📥 Новый запрос доступа от @{user_name} ({user_id})",
         reply_markup=kb
+    )
+
+# Хэндлер для кнопок "Одобрить" или "Отклонить"
+async def access_request_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    action, user_id = data.split("|")[1:]  # Разделяем действие (одобрить/отклонить) и user_id
+
+    # Получаем информацию о пользователе
+    conn = get_db()
+    cur = conn.cursor()
+
+    # Если действие "одобрить"
+    if action == "approve":
+        cur.execute("""
+            UPDATE users SET is_approved = 1 WHERE user_id = ?
+        """, (user_id,))
+        conn.commit()
+        conn.close()
+        await query.answer("✅ Доступ одобрен!")
+        await query.edit_message_text("Доступ был одобрен.")
+    # Если действие "отклонить"
+    elif action == "deny":
+        cur.execute("""
+            UPDATE users SET is_approved = 0 WHERE user_id = ?
+        """, (user_id,))
+        conn.commit()
+        conn.close()
+        await query.answer("❌ Доступ отклонён!")
+        await query.edit_message_text("Доступ был отклонён.")
+    
+    # Уведомление пользователю о решении
+    await telegram_app.bot.send_message(
+        chat_id=user_id,
+        text=f"Ваш запрос на доступ был {('одобрен', 'отклонён')[action == 'deny']}. Спасибо за обращение!"
     )
 
 # ------------------------------
