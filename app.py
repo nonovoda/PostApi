@@ -304,13 +304,13 @@ def build_metrics(clicks, unique_clicks, reg, ftd, conf_payout, rd):
 # Inline-хэндлер для кнопок
 # ------------------------------
 async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 🔒 Проверка доступа
     if not await check_access(update):
+        await update.callback_query.answer("Доступ запрещен", show_alert=True)
         return
 
     query = update.callback_query
     await query.answer()
-    data = query.data
+    data = query.data  # Определение переменной data
 
     if data == "back_menu":
         await query.edit_message_text("Главное меню", parse_mode="HTML")
@@ -330,9 +330,9 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             date_from = f"{start_} 00:00"
             date_to = f"{end_} 23:59"
             label = "Последние 7 дней"
-        else:
+        else:  # period_month
             end_ = datetime.now().date()
-            start_ = end_ - timedelta(days=30)
+            start_ = end_ - timedelta(days=29)  # Исправлено на 29 дней
             date_from = f"{start_} 00:00"
             date_to = f"{end_} 23:59"
             label = "Последние 30 дней"
