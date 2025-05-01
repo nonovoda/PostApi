@@ -40,20 +40,25 @@ telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 # 🔒 СИСТЕМА КОНТРОЛЯ ДОСТУПА
 # ------------------------------
 async def check_access(update: Update) -> bool:
-    """Проверяет доступ по chat_id"""
-    user_chat_id = str(update.effective_chat.id)
-    if user_chat_id != TELEGRAM_CHAT_ID:
-        logger.warning(f"Unauthorized access attempt from: {user_chat_id}")
-        try:
+    """Проверяет доступ по chat_id с подробным логированием"""
+    try:
+        current_chat_id = str(update.effective_chat.id)
+        allowed_chat_id = str(TELEGRAM_CHAT_ID.strip())  # Удаляем возможные пробелы
+        
+        logger.debug(f"Проверка доступа: {current_chat_id} vs {allowed_chat_id}")
+        
+        if current_chat_id != allowed_chat_id:
+            logger.warning(f"🚨 Доступ запрещён для chat_id: {current_chat_id}")
             if update.message:
+                await update.message.delete()
                 await update.message.reply_text("⛔ Доступ запрещён")
             elif update.callback_query:
                 await update.callback_query.answer("Доступ ограничен", show_alert=True)
-        except Exception as e:
-            logger.error(f"Error in access check: {e}")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка проверки доступа: {str(e)}")
         return False
-    return True
-
 # ------------------------------
 # Главное меню (Reply-кнопки)
 # ------------------------------
@@ -75,19 +80,25 @@ async def webhook_handler(request: Request):
     if request.method == "GET":
         data = dict(request.query_params)
         return await process_postback_data(data)
+    
     try:
         data = await request.json()
         if "update_id" in data:
             update = Update.de_json(data, telegram_app.bot)
+            
+            # 🔒 Принудительная проверка доступа
+            if not await check_access(update):
+                return {"status": "access_denied"}
+            
             if not telegram_app.running:
                 await init_telegram_app()
             await telegram_app.process_update(update)
-            return {"status": "ok"}
         else:
             return await process_postback_data(data)
     except Exception as e:
-        logger.error(f"Ошибка обработки webhook: {e}")
-        return {"status": "ok"}
+        logger.error(f"Webhook error: {e}")
+    
+    return {"status": "ok"}
 
 # ------------------------------
 # Инициализация Telegram
