@@ -28,13 +28,31 @@ API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 BASE_API_URL = "https://4rabet.api.alanbase.com/v1"
 PORT = int(os.environ.get("PORT", 8000))
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID")  # 🔒 Должен быть числовой ID
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+# ------------------------------
+# 🔒 СИСТЕМА КОНТРОЛЯ ДОСТУПА
+# ------------------------------
+async def check_access(update: Update) -> bool:
+    """Проверяет доступ по chat_id"""
+    user_chat_id = str(update.effective_chat.id)
+    if user_chat_id != TELEGRAM_CHAT_ID:
+        logger.warning(f"Unauthorized access attempt from: {user_chat_id}")
+        try:
+            if update.message:
+                await update.message.reply_text("⛔ Доступ запрещён")
+            elif update.callback_query:
+                await update.callback_query.answer("Доступ ограничен", show_alert=True)
+        except Exception as e:
+            logger.error(f"Error in access check: {e}")
+        return False
+    return True
 
 # ------------------------------
 # Главное меню (Reply-кнопки)
@@ -127,6 +145,10 @@ async def process_postback_data(data: dict):
 # /start
 # ------------------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 🔒 Проверка доступа
+    if not await check_access(update):
+        return
+
     txt = "Привет! Выберите команду:"
     mk = get_main_menu()
     await update.message.reply_text(txt, parse_mode="HTML", reply_markup=mk)
@@ -246,6 +268,10 @@ def build_metrics(clicks, unique_clicks, reg, ftd, conf_payout, rd):
 # Inline-хэндлер для кнопок
 # ------------------------------
 async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 🔒 Проверка доступа
+    if not await check_access(update):
+        return
+
     query = update.callback_query
     await query.answer()
     data = query.data
@@ -412,9 +438,11 @@ async def show_stats_screen(query, context, date_from: str, date_to: str, label:
 # ------------------------------
 # Хэндлер ввода дат (Свой период)
 # ------------------------------
-# ... (остальной код остался без изменений)
-
 async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 🔒 Проверка доступа
+    if not await check_access(update):
+        return
+    
     if not context.user_data.get("awaiting_period"):
         return
     
@@ -488,10 +516,15 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Если это не callback_query, создаем FakeQ с chat_id и inline_id
         fquery = FakeQ(inline_id, chat_id)
         await show_stats_screen(fquery, context, date_from, date_to, lbl)
+
 # ------------------------------
 # Reply-хэндлер для текстовых команд
 # ------------------------------
 async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 🔒 Проверка доступа
+    if not await check_access(update):
+        return
+
     text = update.message.text.strip()
     known_commands = ["📊 Получить статистику", "ЛК ПП", "⬅️ Назад"]
     
