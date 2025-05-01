@@ -77,18 +77,32 @@ def get_user_status(user_id):
 # 🔒 Система контроля доступа
 # ------------------------------
 async def check_access(update: Update) -> bool:
-    uid = str(update.effective_chat.id)
-    is_approved, _ = get_user_status(uid)
-    if is_approved != 1:
-        # Если не одобрен — предложить запросить доступ
-        if update.message:
-            await update.message.delete()
-            await update.message.reply_text(
-                "⛔ У вас нет доступа. Нажмите «🔑 Запросить доступ».",
-                reply_markup=ReplyKeyboardMarkup([[KeyboardButton("🔑 Запросить доступ")]], resize_keyboard=True)
-            )
+    try:
+        current_chat_id = int(update.effective_chat.id)
+        allowed_chat_id = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
+
+        # Разрешаем кнопку запроса доступа
+        if update.message and update.message.text == "🔑 Запросить доступ":
+            return True
+
+        if current_chat_id != allowed_chat_id:
+            logger.warning(f"🚨 Доступ запрещён для: {current_chat_id}")
+            if update.message:
+                await update.message.delete()
+                await update.message.reply_text(
+                    "⛔ У вас нет доступа. Нажмите «🔑 Запросить доступ».",
+                    reply_markup=ReplyKeyboardMarkup(
+                        [[KeyboardButton("🔑 Запросить доступ")]],
+                        resize_keyboard=True
+                    )
+                )
+            elif update.callback_query:
+                await update.callback_query.answer("⛔ У вас нет доступа.", show_alert=True)
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка проверки доступа: {str(e)}")
         return False
-    return True
 
 # ------------------------------
 # Главное меню
