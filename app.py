@@ -315,7 +315,7 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "back_menu":
         # ... код для кнопки "Назад" ...
 
-   elif data in ["period_today", "period_7days", "period_month"]:
+  elif data in ["period_today", "period_7days", "period_month"]:
         if data == "period_today":
             d_str = datetime.now().strftime("%Y-%m-%d")
             date_from = f"{d_str} 00:00"
