@@ -170,8 +170,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ------------------------------
 # Агрегация для /common (group_by=day)
 # ------------------------------
+# ------------------------------
+# Агрегация для /common (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+# ------------------------------
 async def get_common_data_aggregated(date_from: str, date_to: str):
     try:
+        logger.info(f"Запрос /common за период: {date_from} - {date_to}")
+        
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
                 f"{BASE_API_URL}/partner/statistic/common",
@@ -179,37 +184,58 @@ async def get_common_data_aggregated(date_from: str, date_to: str):
                 params={
                     "group_by": "day",
                     "timezone": "Europe/Moscow",
-                    "date_from": date_from,
-                    "date_to": date_to,
+                    "date_from": date_from.split()[0],  # Берем только дату
+                    "date_to": date_to.split()[0],      # Без времени
                     "currency_code": "USD"
                 }
             )
+
         if r.status_code != 200:
             return False, f"Ошибка /common {r.status_code}: {r.text}"
+        
         data = r.json()
         arr = data.get("data", [])
-        if not arr:
-            return True, {
-                "click_count": 0,
-                "click_unique": 0,
-                "conf_count": 0,
-                "conf_payout": 0.0
-            }
-        s_click, s_unique, s_conf, s_pay = 0, 0, 0, 0.0
-        for item in arr:
-            s_click += item.get("click_count", 0)
-            s_unique += item.get("click_unique_count", 0)
-            c_ = item.get("conversions", {}).get("confirmed", {})
-            s_conf += c_.get("count", 0)
-            s_pay += c_.get("payout", 0.0)
-        return True, {
-            "click_count": s_click,
-            "click_unique": s_unique,
-            "conf_count": s_conf,
-            "conf_payout": s_pay
+        
+        logger.debug(f"Сырые данные API: {json.dumps(arr, ensure_ascii=False)}")
+        
+        # Обнуляем счетчики
+        total = {
+            "click_count": 0,
+            "click_unique": 0,
+            "conf_count": 0,
+            "conf_payout": 0.0
         }
+        
+        for item in arr:
+            total["click_count"] += int(item.get("click_count", 0))
+            total["click_unique"] += int(item.get("click_unique_count", 0))
+            
+            conversions = item.get("conversions", {})
+            confirmed = conversions.get("confirmed", {})
+            
+            # Проверка типа данных для конверсий
+            if isinstance(confirmed, dict):
+                total["conf_count"] += int(confirmed.get("count", 0))
+                total["conf_payout"] += float(confirmed.get("payout", 0))
+            else:
+                logger.warning(f"Некорректный формат конверсий: {type(confirmed)}")
+
+        logger.info(f"Итоговая агрегация: {total}")
+        return True, total
+        
     except Exception as e:
-        return False, f"Ошибка /common: {str(e)}"
+        logger.error(f"Критическая ошибка в get_common_data_aggregated: {str(e)}")
+        return False, f"Ошибка обработки данных: {str(e)}"
+
+# ------------------------------
+# Исправление формирования дат для "За месяц"
+# ------------------------------
+if data == "period_month":
+    end_ = datetime.now().date()
+    start_ = end_ - timedelta(days=29)  # 30 дней включая текущий день
+    date_from = f"{start_} 00:00"
+    date_to = f"{end_} 23:59"
+    label = "Последние 30 дней"
 
 # ------------------------------
 # Агрегация для /conversions (registration, ftd, rdeposit)
