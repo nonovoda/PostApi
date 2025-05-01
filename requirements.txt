@@ -3,3 +3,4 @@ uvicorn
 python-telegram-bot
 httpx
 requests
+black==23.12.0
