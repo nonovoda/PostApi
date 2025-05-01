@@ -224,16 +224,6 @@ async def get_common_data_aggregated(date_from: str, date_to: str):
         return False, f"Ошибка обработки данных: {str(e)}"
 
 # ------------------------------
-# Исправление формирования дат для "За месяц"
-# ------------------------------
-if data == "period_month":
-    end_ = datetime.now().date()
-    start_ = end_ - timedelta(days=29)  # 30 дней включая текущий день
-    date_from = f"{start_} 00:00"
-    date_to = f"{end_} 23:59"
-    label = "Последние 30 дней"
-
-# ------------------------------
 # Агрегация для /conversions (registration, ftd, rdeposit)
 # ------------------------------
 async def get_rfr_aggregated(date_from: str, date_to: str):
