@@ -310,41 +310,43 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
     await query.answer()
-    data = query.data  # Определяем переменную здесь
+    data = query.data
 
-   if data == "back_menu":
-    kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("Сегодня", callback_data="period_today"),
-            InlineKeyboardButton("7 дней", callback_data="period_7days"),
-            InlineKeyboardButton("За месяц", callback_data="period_month")
-        ],
-        [InlineKeyboardButton("Свой период", callback_data="period_custom")],
-        [InlineKeyboardButton("Назад", callback_data="back_menu")]
-    ])
-    await query.edit_message_text("Выберите период:", parse_mode="HTML", reply_markup=kb)
-    return
+    if data == "back_menu":
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Сегодня", callback_data="period_today"),
+                InlineKeyboardButton("7 дней", callback_data="period_7days"),
+                InlineKeyboardButton("За месяц", callback_data="period_month")
+            ],
+            [InlineKeyboardButton("Свой период", callback_data="period_custom")],
+            [InlineKeyboardButton("Назад", callback_data="back_menu")]
+        ])
+        await query.edit_message_text("Выберите период:", parse_mode="HTML", reply_markup=kb)
+        return
 
-elif data in ["period_today", "period_7days", "period_month"]:
-    if data == "period_today":
-        d_str = datetime.now().strftime("%Y-%m-%d")
-        date_from = f"{d_str} 00:00"
-        date_to = f"{d_str} 23:59"
-        label = "Сегодня"
-    elif data == "period_7days":
-        end_ = datetime.now().date()
-        start_ = end_ - timedelta(days=6)
-        date_from = f"{start_} 00:00"
-        date_to = f"{end_} 23:59"
-        label = "Последние 7 дней"
-    elif data == "period_month":
-        end_ = datetime.now().date()
-        start_ = end_ - timedelta(days=29)  # 30 дней, включая текущий
-        date_from = f"{start_} 00:00"
-        date_to = f"{end_} 23:59"
-        label = "Последние 30 дней"
+    elif data in ["period_today", "period_7days", "period_month"]:
+        if data == "period_today":
+            d_str = datetime.now().strftime("%Y-%m-%d")
+            date_from = f"{d_str} 00:00"
+            date_to = f"{d_str} 23:59"
+            label = "Сегодня"
+        elif data == "period_7days":
+            end_ = datetime.now().date()
+            start_ = end_ - timedelta(days=6)
+            date_from = f"{start_} 00:00"
+            date_to = f"{end_} 23:59"
+            label = "Последние 7 дней"
+        elif data == "period_month":
+            end_ = datetime.now().date()
+            start_ = end_ - timedelta(days=29)
+            date_from = f"{start_} 00:00"
+            date_to = f"{end_} 23:59"
+            label = "Последние 30 дней"
+        await show_stats_screen(query, context, date_from, date_to, label)
+        return
 
-    if data == "period_custom":
+    elif data == "period_custom":
         txt = (
             "🗓 Введите период (YYYY-MM-DD,YYYY-MM-DD)\n"
             "Пример: 2025-02-01,2025-02-10\n"
@@ -358,7 +360,7 @@ elif data in ["period_today", "period_7days", "period_month"]:
         context.user_data["inline_msg_id"] = query.message.message_id
         return
 
-    if data == "back_periods":
+    elif data == "back_periods":
         kb = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("Сегодня", callback_data="period_today"),
@@ -371,7 +373,7 @@ elif data in ["period_today", "period_7days", "period_month"]:
         await query.edit_message_text("Выберите период:", parse_mode="HTML", reply_markup=kb)
         return
 
-    if data.startswith("metrics|"):
+    elif data.startswith("metrics|"):
         uniq_id = data.split("|")[1]
         store = context.user_data.get("stats_store", {}).get(uniq_id)
         if not store:
@@ -394,7 +396,7 @@ elif data in ["period_today", "period_7days", "period_month"]:
         await query.edit_message_text(final_txt, parse_mode="HTML", reply_markup=kb)
         return
 
-    if data.startswith("hide|"):
+    elif data.startswith("hide|"):
         uniq_id = data.split("|")[1]
         st_ = context.user_data.get("stats_store", {}).get(uniq_id)
         if not st_:
@@ -408,7 +410,7 @@ elif data in ["period_today", "period_7days", "period_month"]:
         await query.edit_message_text(st_["base_text"], parse_mode="HTML", reply_markup=kb)
         return
 
-    if data.startswith("update|"):
+    elif data.startswith("update|"):
         uniq_id = data.split("|")[1]
         store = context.user_data.get("stats_store", {}).get(uniq_id)
         if not store:
