@@ -7,19 +7,12 @@ import json
 import uuid
 from fastapi import FastAPI, Request
 from telegram import (
-    Update,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup
+    Update, ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardButton, InlineKeyboardMarkup
 )
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes
+    Application, CommandHandler, MessageHandler,
+    CallbackQueryHandler, filters, ContextTypes
 )
 
 # ------------------------------
@@ -41,45 +34,44 @@ telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 # Система контроля доступа
 # ------------------------------
 async def check_access(update: Update) -> bool:
-    """Проверяет доступ по chat_id"""
     try:
-        current_chat_id = int(update.effective_chat.id)
-        allowed_chat_id = int(TELEGRAM_CHAT_ID.strip())
-        
-        if current_chat_id != allowed_chat_id:
+        current = int(update.effective_chat.id)
+        allowed = int(TELEGRAM_CHAT_ID.strip())
+        if current != allowed:
             if update.message:
                 await update.message.delete()
                 await update.message.reply_text("⛔ Доступ запрещён")
-            elif update.callback_query:
+            else:
                 await update.callback_query.answer("Доступ ограничен", show_alert=True)
             return False
         return True
     except Exception as e:
-        logger.error(f"Ошибка проверки доступа: {str(e)}")
+        logger.error(f"Ошибка проверки доступа: {e}")
         return False
 
 # ------------------------------
-# Универсальные клавиатуры
+# Клавиатуры
 # ------------------------------
 def get_main_menu():
     return ReplyKeyboardMarkup(
-        [
-            [KeyboardButton("📊 Получить статистику"), KeyboardButton("ЛК ПП")],
-            [KeyboardButton("⬅️ Назад")]
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=False
+        [[KeyboardButton("📊 Получить статистику"), KeyboardButton("ЛК ПП")],
+         [KeyboardButton("⬅️ Назад")]], resize_keyboard=True
     )
 
-def get_periods_keyboard():
+def get_periods_keyboard(back_key="back_menu"):
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("Сегодня", callback_data="period_today"),
-            InlineKeyboardButton("7 дней", callback_data="period_7days"),
-            InlineKeyboardButton("За месяц", callback_data="period_month")
-        ],
+        [InlineKeyboardButton("Сегодня", callback_data="period_today"),
+         InlineKeyboardButton("7 дней", callback_data="period_7days"),
+         InlineKeyboardButton("За месяц", callback_data="period_month")],
         [InlineKeyboardButton("Свой период", callback_data="period_custom")],
-        [InlineKeyboardButton("Назад", callback_data="back_menu")]
+        [InlineKeyboardButton("Назад", callback_data=back_key)]
+    ])
+
+def get_metrics_keyboard(uniq_id: str):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✨ Рассчитать метрики", callback_data=f"metrics|{uniq_id}")],
+        [InlineKeyboardButton("Обновить", callback_data=f"update|{uniq_id}"),
+         InlineKeyboardButton("Назад", callback_data="back_periods")]
     ])
 
 # ------------------------------
@@ -92,192 +84,138 @@ async def init_telegram_app():
     logger.info("Telegram-бот запущен!")
 
 # ------------------------------
-# Получение данных с API
+# Вебхук и постбек
 # ------------------------------
-async def get_common_data_aggregated(date_from: str, date_to: str):
+@app.api_route("/webhook", methods=["GET", "POST"])
+async def webhook_handler(request: Request):
+    if request.method == "GET":
+        return await process_postback_data(dict(request.query_params))
+    data = await request.json()
+    if "update_id" in data:
+        update = Update.de_json(data, telegram_app.bot)
+        if not await check_access(update):
+            return {"status": "access_denied"}
+        if not telegram_app.running:
+            await init_telegram_app()
+        await telegram_app.process_update(update)
+        return {"status": "ok"}
+    return await process_postback_data(data)
+
+async def process_postback_data(data: dict):
+    offer = data.get("offer_id", "N/A")
+    goal = data.get("goal", "N/A")
+    revenue = data.get("revenue", "N/A")
+    sub3 = data.get("sub_id3", "N/A")
+    msg = (
+        f"🔔 <b>Новая конверсия!</b>\n\n"
+        f"<b>📌 Оффер:</b> <i>{offer}</i>\n"
+        f"<b>🛠 Подход:</b> <i>{sub3}</i>\n"
+        f"<b>📊 Тип:</b> <i>{goal}</i>\n"
+        f"<b>💰 Выплата:</b> <i>{revenue}</i>"
+    )
     try:
-        logger.info(f"Запрос /common за период: {date_from} - {date_to}")
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.get(
-                f"{BASE_API_URL}/partner/statistic/common",
-                headers={"API-KEY": API_KEY},
-                params={
-                    "group_by": "day",
-                    "timezone": "Europe/Moscow",
-                    "date_from": date_from.split()[0],
-                    "date_to": date_to.split()[0],
-                    "currency_code": "USD"
-                }
-            )
-
-        if r.status_code != 200:
-            return False, f"Ошибка /common {r.status_code}: {r.text}"
-        
-        data = r.json()
-        arr = data.get("data", [])
-        total = {
-            "click_count": sum(int(item.get("click_count", 0)) for item in arr),
-            "click_unique": sum(int(item.get("click_unique_count", 0)) for item in arr),
-            "conf_count": sum(int(item.get("conversions", {}).get("confirmed", {}).get("count", 0)) for item in arr),
-            "conf_payout": sum(float(item.get("conversions", {}).get("confirmed", {}).get("payout", 0)) for item in arr)
-        }
-
-        logger.info(f"Итоговая агрегация: {total}")
-        return True, total
+        await telegram_app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg, parse_mode="HTML")
+        return {"status": "ok"}
     except Exception as e:
-        logger.error(f"Критическая ошибка в get_common_data_aggregated: {str(e)}")
-        return False, f"Ошибка обработки данных: {str(e)}"
+        logger.error(f"Ошибка постбека: {e}")
+        return {"status": "error"}
 
 # ------------------------------
-# Получение данных по конверсиям
+# Команды
 # ------------------------------
-async def get_rfr_aggregated(date_from: str, date_to: str):
-    out = {"registration": 0, "ftd": 0, "rdeposit": 0}
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_access(update): return
+    await update.message.reply_text("Привет! Выберите команду:", reply_markup=get_main_menu())
+
+async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == "📊 Получить статистику":
+        await update.message.reply_text("Выберите период:", reply_markup=get_periods_keyboard())
+    elif text == "ЛК ПП":
+        await update.message.reply_text("https://cabinet.4rabetpartner.com/statistics", reply_markup=get_main_menu())
+    elif text == "⬅️ Назад":
+        await update.message.reply_text("Главное меню:", reply_markup=get_main_menu())
+
+# ------------------------------
+# Вспомогательные функции
+# ------------------------------
+def get_dates(period: str):
+    today = datetime.now().date()
+    if period == "period_today": return today, today, "Сегодня"
+    if period == "period_7days": return today - timedelta(days=6), today, "Последние 7 дней"
+    if period == "period_month": return today - timedelta(days=29), today, "Последние 30 дней"
+    return None, None, None
+
+# ------------------------------
+# Запросы к API
+# ------------------------------
+async def get_common(date_from: str, date_to: str):
+    params = {"group_by": "day", "timezone": "Europe/Moscow",
+              "date_from": date_from, "date_to": date_to, "currency_code": "USD"}
+    async with httpx.AsyncClient() as client:
+        r = await client.get(f"{BASE_API_URL}/partner/statistic/common", headers={"API-KEY": API_KEY}, params=params)
+    data = r.json().get("data", [])
+    return {
+        "click_count": sum(int(i.get("click_count",0)) for i in data),
+        "click_unique": sum(int(i.get("click_unique_count",0)) for i in data),
+        "conf_count": sum(int(i.get("conversions",{}).get("confirmed",{}).get("count",0)) for i in data),
+        "conf_payout": sum(float(i.get("conversions",{}).get("confirmed",{}).get("payout",0)) for i in data)
+    }
+
+async def get_conversions(date_from: str, date_to: str):
+    out = {"registration":0, "ftd":0, "rdeposit":0}
     page = 1
-    goal_keys = ["registration", "ftd", "rdeposit"]
-
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            while True:
-                params = [
-                    ("timezone", "Europe/Moscow"),
-                    ("date_from", date_from),
-                    ("date_to", date_to),
-                    ("per_page", "500"),
-                    ("page", str(page)),
-                    ("group_by", "day")
-                ] + [("goal_keys[]", key) for key in goal_keys]
-
-                resp = await client.get(
-                    f"{BASE_API_URL}/partner/statistic/conversions",
-                    headers={"API-KEY": API_KEY},
-                    params=params
-                )
-
-                if resp.status_code != 200:
-                    return False, f"Ошибка /conversions {resp.status_code}: {resp.text}"
-
-                arr = resp.json().get("data", [])
-                if not arr:
-                    break
-
-                for c in arr:
-                    g = c.get("goal", {}).get("key")
-                    if g in out:
-                        out[g] += 1
-
-                page += 1
-
-        return True, out
-    except Exception as e:
-        return False, str(e)
+    while True:
+        params = [("timezone","Europe/Moscow"),("date_from",date_from),("date_to",date_to),
+                  ("per_page","500"),("page",str(page)),("group_by","day")]
+        for key in out: params.append(("goal_keys[]", key))
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{BASE_API_URL}/partner/statistic/conversions", headers={"API-KEY": API_KEY}, params=params)
+        data = r.json().get("data",[])
+        if not data: break
+        for item in data:
+            k = item.get("goal",{}).get("key")
+            if k in out: out[k] += 1
+        page += 1
+    return out
 
 # ------------------------------
-# Формирование статистики
-# ------------------------------
-def build_stats_text(label, date_label, clicks, unique_clicks, reg_count, ftd_count, rd_count, conf_count, conf_payout):
-    return (
-        f"📊 <b>Статистика</b> ({label})\n\n"
-        f"🗓 <b>Период:</b> <i>{date_label}</i>\n\n"
-        f"👁 <b>Клики:</b> <i>{clicks}</i> (уник: {unique_clicks})\n"
-        f"🆕 <b>Регистрации:</b> <i>{reg_count}</i>\n"
-        f"💵 <b>FTD:</b> <i>{ftd_count}</i>\n"
-        f"🔄 <b>RD:</b> <i>{rd_count}</i>\n\n"
-        f"✅ <b>Конверсии:</b> <i>{conf_count}</i>\n"
-        f"💰 <b>Доход:</b> <i>{conf_payout:.2f} USD</i>\n"
-    )
-
-def build_metrics(clicks, unique_clicks, reg, ftd, conf_payout, rd):
-    c2r = (reg / clicks * 100) if clicks > 0 else 0
-    r2d = (ftd / reg * 100) if reg > 0 else 0
-    c2d = (ftd / clicks * 100) if clicks > 0 else 0
-    fd2rd = (rd / ftd * 100) if ftd > 0 else 0
-    epc = (conf_payout / clicks) if clicks > 0 else 0
-    uepc = (conf_payout / unique_clicks) if unique_clicks > 0 else 0
-    return (
-        "🎯 <b>Метрики:</b>\n\n"
-        f"• <b>C2R</b> = {c2r:.2f}%\n"
-        f"• <b>R2D</b> = {r2d:.2f}%\n"
-        f"• <b>C2D</b> = {c2d:.2f}%\n"
-        f"• <b>FD2RD</b> = {fd2rd:.2f}%\n\n"
-        f"• <b>EPC</b> = {epc:.3f} USD\n"
-        f"• <b>uEPC</b> = {uepc:.3f} USD\n"
-    )
-
-# ------------------------------
-# Inline-хэндлер для кнопок
+# Обработчик inline
 # ------------------------------
 async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_access(update):
-        await update.callback_query.answer("Доступ запрещён", show_alert=True)
-        return
-
+    if not await check_access(update): return
     query = update.callback_query
     await query.answer()
     data = query.data
-
-    if data == "back_menu":
-        await query.edit_message_text("Выберите период:", parse_mode="HTML", reply_markup=get_periods_keyboard())
-        return
-
-    date_from, date_to, label = await get_dates_for_period(data)
-    if date_from and date_to:
-        await show_stats_screen(query, context, date_from, date_to, label)
-
-# ------------------------------
-# Показ статистики
-# ------------------------------
-async def show_stats_screen(query, context, date_from: str, date_to: str, label: str):
-    okc, cinfo = await get_common_data_aggregated(date_from, date_to)
-    if not okc:
-        text = f"❗ {cinfo}"
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=get_periods_keyboard())
-        return
-    cc = cinfo["click_count"]
-    uc = cinfo["click_unique"]
-    confc = cinfo["conf_count"]
-    confp = cinfo["conf_payout"]
-
-    okr, rdata = await get_rfr_aggregated(date_from, date_to)
-    if not okr:
-        text = f"❗ {rdata}"
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=get_periods_keyboard())
-        return
-    reg = rdata["registration"]
-    ftd = rdata["ftd"]
-    rd = rdata["rdeposit"]
-
-    date_lbl = f"{date_from[:10]} .. {date_to[:10]}"
-    base_text = build_stats_text(label, date_lbl, cc, uc, reg, ftd, rd, confc, confp)
-
-    uniq_id = str(uuid.uuid4())[:8]
-    context.user_data.setdefault("stats_store", {})[uniq_id] = {
-        "base_text": base_text,
-        "clicks": cc,
-        "unique": uc,
-        "reg": reg,
-        "ftd": ftd,
-        "rd": rd,
-        "date_from": date_from,
-        "date_to": date_to,
-        "label": label,
-        "confp": confp
-    }
-
-    kb = get_metrics_keyboard(uniq_id)
-    await query.edit_message_text(base_text, parse_mode="HTML", reply_markup=kb)
+    if data in ["period_today","period_7days","period_month"]:
+        start, end, label = get_dates(data)
+        date_from, date_to = f"{start} 00:00", f"{end} 23:59"
+        stats = await get_common(date_from.split()[0], date_to.split()[0])
+        conv = await get_conversions(date_from, date_to)
+        text = (
+            f"📊 <b>Статистика</b> ({label})\n"
+            f"🗓 <i>{start} .. {end}</i>\n"
+            f"👁 {stats['click_count']} (уник: {stats['click_unique']})\n"
+            f"🆕 Рег.: {conv['registration']} | FTD: {conv['ftd']} | RD: {conv['rdeposit']}\n"
+            f"✅ Конверсии: {stats['conf_count']} | 💰 {stats['conf_payout']:.2f} USD"
+        )
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=get_metrics_keyboard(str(uuid.uuid4())[:8]))
+    elif data == "period_custom":
+        await query.edit_message_text("🗓 Введите период (YYYY-MM-DD,YYYY-MM-DD)", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад",callback_data="back_menu")]]))
+    elif data == "back_menu":
+        await query.edit_message_text("Выберите период:", reply_markup=get_periods_keyboard())
 
 # ------------------------------
-# Обработчики
+# Регистрация хэндлеров
 # ------------------------------
 telegram_app.add_handler(CommandHandler("start", start_command))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_handler))
 telegram_app.add_handler(CallbackQueryHandler(inline_handler))
 
 # ------------------------------
-# Запуск приложения
+# Запуск
 # ------------------------------
 if __name__ == "__main__":
-    import uvicorn
     loop = asyncio.get_event_loop()
     loop.create_task(init_telegram_app())
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    import uvicorn; uvicorn.run(app, host="0.0.0.0", port=PORT)
