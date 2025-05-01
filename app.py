@@ -312,8 +312,18 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data  # Определяем переменную здесь
 
-    if data == "back_menu":
-    # ... код для кнопки "Назад" ...
+   if data == "back_menu":
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Сегодня", callback_data="period_today"),
+            InlineKeyboardButton("7 дней", callback_data="period_7days"),
+            InlineKeyboardButton("За месяц", callback_data="period_month")
+        ],
+        [InlineKeyboardButton("Свой период", callback_data="period_custom")],
+        [InlineKeyboardButton("Назад", callback_data="back_menu")]
+    ])
+    await query.edit_message_text("Выберите период:", parse_mode="HTML", reply_markup=kb)
+    return
 
 elif data in ["period_today", "period_7days", "period_month"]:
     if data == "period_today":
