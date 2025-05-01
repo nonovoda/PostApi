@@ -167,10 +167,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mk = get_main_menu()
     await update.message.reply_text(txt, parse_mode="HTML", reply_markup=mk)
 
-# ------------------------------
-# Агрегация для /common (group_by=day)
-# ------------------------------
-# ------------------------------
 # Агрегация для /common (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 # ------------------------------
 async def get_common_data_aggregated(date_from: str, date_to: str):
