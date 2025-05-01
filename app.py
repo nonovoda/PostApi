@@ -305,17 +305,28 @@ def build_metrics(clicks, unique_clicks, reg, ftd, conf_payout, rd):
 # ------------------------------
 async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_access(update):
-        await update.callback_query.answer("Доступ запрещен", show_alert=True)
+        await update.callback_query.answer("Доступ запрещён", show_alert=True)
         return
 
     query = update.callback_query
     await query.answer()
-    data = query.data  # Определение переменной data
+    data = query.data  # Определяем переменную здесь
 
     if data == "back_menu":
-        await query.edit_message_text("Главное меню", parse_mode="HTML")
-        mk = get_main_menu()
-        await query.message.reply_text("Главное меню:", parse_mode="HTML", reply_markup=mk)
+        # ... код для кнопки "Назад" ...
+
+    elif data in ["period_today", "period_7days", "period_month"]:
+        if data == "period_today":
+            # ... обработка сегодняшней даты ...
+        elif data == "period_7days":
+            # ... обработка 7 дней ...
+        elif data == "period_month":  # Добавлено явное условие
+            end_ = datetime.now().date()
+            start_ = end_ - timedelta(days=29)
+            date_from = f"{start_} 00:00"
+            date_to = f"{end_} 23:59"
+            label = "Последние 30 дней"
+            await show_stats_screen(query, context, date_from, date_to, label)
         return
 
     if data in ["period_today", "period_7days", "period_month"]:
