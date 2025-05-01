@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import httpx
 import json
 import uuid
-import sqlite3
 from fastapi import FastAPI, Request
 from telegram import (
     Update,
@@ -30,83 +29,34 @@ API_KEY = os.getenv("PP_API_KEY", "ВАШ_API_КЛЮЧ")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ВАШ_ТОКЕН")
 BASE_API_URL = "https://4rabet.api.alanbase.com/v1"
 PORT = int(os.environ.get("PORT", 8000))
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID")
-DB_PATH = os.getenv("DB_PATH", "users.db")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID")  # 🔒 Должен быть числовой ID
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# ------------------------------
-# Инициализация
-# ------------------------------
 app = FastAPI()
 telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 
 # ------------------------------
-# Инициализация Telegram
-# ------------------------------
-async def init_telegram_app():
-    logger.info("Инициализация Telegram-бота...")
-    await telegram_app.initialize()
-    await telegram_app.start()
-    logger.info("Telegram-бот запущен!")
-
-# ------------------------------
-# SQLite: таблица users
-# ------------------------------
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-      user_id TEXT PRIMARY KEY,
-      chat_id TEXT,
-      is_approved INTEGER DEFAULT 0,
-      awaiting_api INTEGER DEFAULT 0,
-      api_key TEXT,
-      postback_token TEXT UNIQUE,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )""")
-    conn.commit()
-    conn.close()
-
-init_db()
-
-def get_db():
-    return sqlite3.connect(DB_PATH)
-
-def get_user_status(user_id):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT is_approved, awaiting_api FROM users WHERE user_id=?", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row if row else (0, 0)
-
-# ------------------------------
-# 🔒 Система контроля доступа
+# 🔒 СИСТЕМА КОНТРОЛЯ ДОСТУПА
 # ------------------------------
 async def check_access(update: Update) -> bool:
+    """Проверяет доступ по chat_id"""
     try:
+        # Приводим оба значения к целым числам
         current_chat_id = int(update.effective_chat.id)
-        allowed_chat_id = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
-
-        # Разрешаем кнопку запроса доступа
-        if update.message and update.message.text == "🔑 Запросить доступ":
-            return True
-
+        allowed_chat_id = int(TELEGRAM_CHAT_ID.strip())
+        
+        logger.debug(f"Проверка доступа: {current_chat_id} vs {allowed_chat_id}")
+        
         if current_chat_id != allowed_chat_id:
             logger.warning(f"🚨 Доступ запрещён для: {current_chat_id}")
+            # Удаляем сообщение и уведомляем пользователя
             if update.message:
                 await update.message.delete()
-                await update.message.reply_text(
-                    "⛔ У вас нет доступа. Нажмите «🔑 Запросить доступ».",
-                    reply_markup=ReplyKeyboardMarkup(
-                        [[KeyboardButton("🔑 Запросить доступ")]],
-                        resize_keyboard=True
-                    )
-                )
+                await update.message.reply_text("⛔ Доступ запрещён")
             elif update.callback_query:
-                await update.callback_query.answer("⛔ У вас нет доступа.", show_alert=True)
+                await update.callback_query.answer("Доступ ограничен", show_alert=True)
             return False
         return True
     except Exception as e:
@@ -114,7 +64,7 @@ async def check_access(update: Update) -> bool:
         return False
 
 # ------------------------------
-# Главное меню
+# Главное меню (Reply-кнопки)
 # ------------------------------
 def get_main_menu():
     return ReplyKeyboardMarkup(
@@ -127,142 +77,45 @@ def get_main_menu():
     )
 
 # ------------------------------
-# Хэндлер /start
-# ------------------------------
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = str(update.effective_user.id)
-    chat = str(update.effective_chat.id)
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("INSERT OR IGNORE INTO users(user_id,chat_id) VALUES(?,?)", (uid, chat))
-    conn.commit(); conn.close()
-    await update.message.reply_text("👋 Привет! Выберите команду:", reply_markup=get_main_menu())
-
-# ------------------------------
-# Хэндлер «Запросить доступ»
-# ------------------------------
-async def request_access_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    chat_id = update.effective_chat.id
-
-    # Проверка — уже есть ли этот пользователь в базе (если реализована)
-    logger.info(f"🔐 Новый запрос доступа от {user.username} ({user.id})")
-
-    # Отправка запроса владельцу (ваш TELEGRAM_CHAT_ID)
-    try:
-        text = (
-            f"📥 <b>Запрос доступа</b>\n\n"
-            f"👤 <b>Пользователь:</b> <i>@{user.username or 'Без username'}</i>\n"
-            f"🆔 <b>ID:</b> <code>{user.id}</code>"
-        )
-        kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ Одобрить", callback_data=f"access|approve|{user.id}"),
-                InlineKeyboardButton("❌ Отклонить", callback_data=f"access|deny|{user.id}")
-            ]
-        ])
-        await telegram_app.bot.send_message(
-            chat_id=int(TELEGRAM_CHAT_ID),
-            text=text,
-            parse_mode="HTML",
-            reply_markup=kb
-        )
-
-        await update.message.reply_text("✅ Запрос отправлен. Ожидайте подтверждения.")
-    except Exception as e:
-        logger.error(f"❌ Ошибка при отправке запроса владельцу: {e}")
-        await update.message.reply_text("⚠️ Не удалось отправить запрос. Попробуйте позже.")
-
-# ------------------------------
-# Inline-коллбэк админа
-# ------------------------------
-async def admin_access_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    _, action, uid = q.data.split("|")
-    conn = get_db(); cur = conn.cursor()
-    if action == "approve":
-        cur.execute("UPDATE users SET is_approved=1,awaiting_api=1 WHERE user_id=?", (uid,))
-        conn.commit()
-        await telegram_app.bot.send_message(
-            chat_id=uid,
-            text="⚠️ Этот бот работает только с партнёрками Alanbase.\nВведите ваш API-ключ:"
-        )
-        res = "Одобрено"
-    else:
-        cur.execute("DELETE FROM users WHERE user_id=?", (uid,))
-        conn.commit()
-        await telegram_app.bot.send_message(chat_id=uid, text="❌ Доступ отклонён.")
-        res = "Отклонено"
-    conn.close()
-    await q.edit_message_text(f"{res} для {uid}")
-
-# ------------------------------
-# Хэндлер ввода API-ключа
-# ------------------------------
-async def api_key_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = str(update.effective_user.id)
-    text = update.message.text.strip()
-    is_approved, awaiting = get_user_status(uid)
-    if awaiting != 1:
-        return  # не ожидаем ключ
-    token = str(uuid.uuid4())[:8]
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("""
-        UPDATE users
-        SET api_key=?, postback_token=?, awaiting_api=0
-        WHERE user_id=?
-    """, (text, token, uid))
-    conn.commit(); conn.close()
-    link = (
-        f"https://your.domain/webhook?token={token}"
-        "&offer_id={offer_id}&sub_id3={sub_id3}&goal={goal}"
-        "&revenue={revenue}&currency={currency}&status={status}"
-        "&sub_id4={sub_id4}&sub_id5={sub_id5}&conversion_date={conversion_date}"
-    )
-    await update.message.reply_text(
-        f"✅ API-ключ сохранён.\n\n🔗 Ваш Postback URL:\n<code>{link}</code>\n\n"
-        "sub_id3 — подход, sub_id4 — кампания, sub_id5 — адсет",
-        parse_mode="HTML",
-        reply_markup=get_main_menu()
-    )
-
-# ------------------------------
-# Изменённый Webhook для постбеков
+# Webhook (Telegram + Postback)
 # ------------------------------
 @app.api_route("/webhook", methods=["GET", "POST"])
 async def webhook_handler(request: Request):
-    # GET — по токену
     if request.method == "GET":
-        params = dict(request.query_params)
-        token = params.get("token")
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT chat_id FROM users WHERE postback_token=?", (token,))
-        row = cur.fetchone(); conn.close()
-        if not row:
-            return {"status": "unauthorized"}
-        return await process_postback_data(params, chat_id=row[0])
-
-    # POST — для Telegram
-    data = await request.json()
-    if "update_id" in data:
-        update = Update.de_json(data, telegram_app.bot)
-        if not await check_access(update):
-            return {"status": "access_denied"}
-        if not telegram_app.running:
-            await init_telegram_app()
-        await telegram_app.process_update(update)
-        return {"status": "ok"}
-    else:
+        data = dict(request.query_params)
         return await process_postback_data(data)
-
-# ------------------------------
-# process_postback_data (не меняем ваш текст)
-# ------------------------------
-async def process_postback_data(data: dict, chat_id=None):
-    # ... (ваша оригинальная реализация) ...
-    await telegram_app.bot.send_message(chat_id=chat_id or TELEGRAM_CHAT_ID, text="🔔 Новая конверсия!", parse_mode="HTML")
+    
+    try:
+        data = await request.json()
+        if "update_id" in data:
+            update = Update.de_json(data, telegram_app.bot)
+            
+            # 🔒 Принудительная проверка доступа
+            if not await check_access(update):
+                return {"status": "access_denied"}
+            
+            if not telegram_app.running:
+                await init_telegram_app()
+            await telegram_app.process_update(update)
+        else:
+            return await process_postback_data(data)
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+    
     return {"status": "ok"}
 
+# ------------------------------
+# Инициализация Telegram
+# ------------------------------
+async def init_telegram_app():
+    logger.info("Инициализация Telegram-бота...")
+    await telegram_app.initialize()
+    await telegram_app.start()
+    logger.info("Telegram-бот запущен!")
+
+# ------------------------------
+# Postback (конверсия)
+# ------------------------------
 async def process_postback_data(data: dict):
     logger.debug(f"Postback data: {data}")
     offer_id = data.get("offer_id", "N/A")
@@ -633,7 +486,7 @@ async def show_stats_screen(query, context, date_from: str, date_to: str, label:
 # ------------------------------
 # Хэндлер ввода дат (Свой период)
 # ------------------------------
-
+# Хэндлер ввода дат (Свой период)
 async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 🔒 Проверка доступа
     if not await check_access(update):
@@ -769,17 +622,10 @@ class FakeQ:
 
     async def answer(self):
         pass
+
 # ------------------------------
-# Регистрация новых хэндлеров
+# Регистрация хэндлеров
 # ------------------------------
-telegram_app.add_handler(CommandHandler("start", start_command))
-telegram_app.add_handler(MessageHandler(
-    filters.TEXT & filters.Regex("^🔑 Запросить доступ$"),
-    request_access_handler
-))
-telegram_app.add_handler(MessageHandler(filters.Regex("^🔑 Запросить доступ$"), request_access_handler), group=0)
-telegram_app.add_handler(CallbackQueryHandler(admin_access_callback, pattern="^access\\|"))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, api_key_handler), group=1)
 telegram_app.add_handler(CommandHandler("start", start_command))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, period_text_handler), group=1)
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_button_handler), group=2)
