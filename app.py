@@ -229,29 +229,43 @@ async def get_common_data_aggregated(date_from: str, date_to: str):
 # ------------------------------
 async def get_rfr_aggregated(date_from: str, date_to: str):
     out = {"registration": 0, "ftd": 0, "rdeposit": 0}
-    base_params = [
-        ("timezone", "Europe/Moscow"),
-        ("date_from", date_from),
-        ("date_to", date_to),
-        ("per_page", "500"),
-        ("group_by", "day")
-    ]
-    for g in ["registration", "ftd", "rdeposit"]:
-        base_params.append(("goal_keys[]", g))
+    page = 1
+    goal_keys = ["registration", "ftd", "rdeposit"]
+
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(
-                f"{BASE_API_URL}/partner/statistic/conversions",
-                headers={"API-KEY": API_KEY},
-                params=base_params
-            )
-        if resp.status_code != 200:
-            return False, f"Ошибка /conversions {resp.status_code}: {resp.text}"
-        arr = resp.json().get("data", [])
-        for c in arr:
-            g = c.get("goal", {}).get("key")
-            if g in out:
-                out[g] += 1
+            while True:
+                params = [
+                    ("timezone", "Europe/Moscow"),
+                    ("date_from", date_from),
+                    ("date_to", date_to),
+                    ("per_page", "500"),
+                    ("page", str(page)),
+                    ("group_by", "day")
+                ]
+                for key in goal_keys:
+                    params.append(("goal_keys[]", key))
+
+                resp = await client.get(
+                    f"{BASE_API_URL}/partner/statistic/conversions",
+                    headers={"API-KEY": API_KEY},
+                    params=params
+                )
+
+                if resp.status_code != 200:
+                    return False, f"Ошибка /conversions {resp.status_code}: {resp.text}"
+
+                arr = resp.json().get("data", [])
+                if not arr:
+                    break  # нет данных — завершаем
+
+                for c in arr:
+                    g = c.get("goal", {}).get("key")
+                    if g in out:
+                        out[g] += 1
+
+                page += 1  # следующая страница
+
         return True, out
     except Exception as e:
         return False, str(e)
