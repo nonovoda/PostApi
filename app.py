@@ -117,7 +117,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ------------------------------
 # Хэндлер «Запросить доступ»
 # ------------------------------
-# Хэндлер запроса доступа
 async def request_access_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)  # ID пользователя
     chat_id = str(update.effective_chat.id)  # ID чата
@@ -788,7 +787,10 @@ telegram_app.add_handler(CommandHandler("start", start_command))
 telegram_app.add_handler(MessageHandler(filters.Regex("^🔑 Запросить доступ$"), request_access_handler), group=0)
 telegram_app.add_handler(CallbackQueryHandler(admin_access_callback, pattern="^access\\|"))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, api_key_handler), group=1)
-# ... плюс ваши существующие add_handler(...) ...
+telegram_app.add_handler(CommandHandler("start", start_command))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, period_text_handler), group=1)
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_button_handler), group=2)
+telegram_app.add_handler(CallbackQueryHandler(inline_handler))
 
 # ------------------------------
 # Запуск приложения
