@@ -132,70 +132,36 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Хэндлер «Запросить доступ»
 # ------------------------------
 async def request_access_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)  # ID пользователя
-    chat_id = str(update.effective_chat.id)  # ID чата
-    user_name = update.effective_user.username  # Имя пользователя
-    
-    # Добавляем пользователя в базу данных (запрашивающий доступ)
-    conn = get_db()  # Подключаемся к базе данных
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT OR IGNORE INTO users(user_id, chat_id, awaiting_api)
-        VALUES(?, ?, 1)
-    """, (user_id, chat_id))  # Помечаем пользователя как ожидающего доступа
-    conn.commit()
-    conn.close()
+    user = update.effective_user
+    chat_id = update.effective_chat.id
 
-    # Отправляем пользователю подтверждение, что запрос на доступ отправлен
-    await update.message.reply_text("✅ Ваш запрос на доступ отправлен. Ожидайте одобрения.")
+    # Проверка — уже есть ли этот пользователь в базе (если реализована)
+    logger.info(f"🔐 Новый запрос доступа от {user.username} ({user.id})")
 
-    # Отправляем сообщение с запросом на одобрение в основной чат (например, к вам)
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Одобрить", callback_data=f"access|approve|{user_id}"),
-        InlineKeyboardButton("❌ Отклонить", callback_data=f"access|deny|{user_id}")
-    ]])
+    # Отправка запроса владельцу (ваш TELEGRAM_CHAT_ID)
+    try:
+        text = (
+            f"📥 <b>Запрос доступа</b>\n\n"
+            f"👤 <b>Пользователь:</b> <i>@{user.username or 'Без username'}</i>\n"
+            f"🆔 <b>ID:</b> <code>{user.id}</code>"
+        )
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Одобрить", callback_data=f"access|approve|{user.id}"),
+                InlineKeyboardButton("❌ Отклонить", callback_data=f"access|deny|{user.id}")
+            ]
+        ])
+        await telegram_app.bot.send_message(
+            chat_id=int(TELEGRAM_CHAT_ID),
+            text=text,
+            parse_mode="HTML",
+            reply_markup=kb
+        )
 
-    # Отправка сообщения в ваш чат с кнопками для одобрения/отклонения
-    await telegram_app.bot.send_message(
-        chat_id=TELEGRAM_CHAT_ID,  # Ваш ID чата, куда отправляется запрос
-        text=f"📥 Новый запрос доступа от @{user_name} ({user_id})",
-        reply_markup=kb
-    )
-
-# Хэндлер для кнопок "Одобрить" или "Отклонить"
-async def access_request_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    data = query.data
-    action, user_id = data.split("|")[1:]  # Разделяем действие (одобрить/отклонить) и user_id
-
-    # Получаем информацию о пользователе
-    conn = get_db()
-    cur = conn.cursor()
-
-    # Если действие "одобрить"
-    if action == "approve":
-        cur.execute("""
-            UPDATE users SET is_approved = 1 WHERE user_id = ?
-        """, (user_id,))
-        conn.commit()
-        conn.close()
-        await query.answer("✅ Доступ одобрен!")
-        await query.edit_message_text("Доступ был одобрен.")
-    # Если действие "отклонить"
-    elif action == "deny":
-        cur.execute("""
-            UPDATE users SET is_approved = 0 WHERE user_id = ?
-        """, (user_id,))
-        conn.commit()
-        conn.close()
-        await query.answer("❌ Доступ отклонён!")
-        await query.edit_message_text("Доступ был отклонён.")
-    
-    # Уведомление пользователю о решении
-    await telegram_app.bot.send_message(
-        chat_id=user_id,
-        text=f"Ваш запрос на доступ был {('одобрен', 'отклонён')[action == 'deny']}. Спасибо за обращение!"
-    )
+        await update.message.reply_text("✅ Запрос отправлен. Ожидайте подтверждения.")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отправке запроса владельцу: {e}")
+        await update.message.reply_text("⚠️ Не удалось отправить запрос. Попробуйте позже.")
 
 # ------------------------------
 # Inline-коллбэк админа
@@ -798,6 +764,10 @@ class FakeQ:
 # Регистрация новых хэндлеров
 # ------------------------------
 telegram_app.add_handler(CommandHandler("start", start_command))
+telegram_app.add_handler(MessageHandler(
+    filters.TEXT & filters.Regex("^🔑 Запросить доступ$"),
+    request_access_handler
+))
 telegram_app.add_handler(MessageHandler(filters.Regex("^🔑 Запросить доступ$"), request_access_handler), group=0)
 telegram_app.add_handler(CallbackQueryHandler(admin_access_callback, pattern="^access\\|"))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, api_key_handler), group=1)
