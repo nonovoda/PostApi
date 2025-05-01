@@ -40,15 +40,17 @@ telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 # 🔒 СИСТЕМА КОНТРОЛЯ ДОСТУПА
 # ------------------------------
 async def check_access(update: Update) -> bool:
-    """Проверяет доступ по chat_id с подробным логированием"""
+    """Проверяет доступ по chat_id"""
     try:
-        current_chat_id = str(update.effective_chat.id)
-        allowed_chat_id = str(TELEGRAM_CHAT_ID.strip())  # Удаляем возможные пробелы
+        # Приводим оба значения к целым числам
+        current_chat_id = int(update.effective_chat.id)
+        allowed_chat_id = int(TELEGRAM_CHAT_ID.strip())
         
         logger.debug(f"Проверка доступа: {current_chat_id} vs {allowed_chat_id}")
         
         if current_chat_id != allowed_chat_id:
-            logger.warning(f"🚨 Доступ запрещён для chat_id: {current_chat_id}")
+            logger.warning(f"🚨 Доступ запрещён для: {current_chat_id}")
+            # Удаляем сообщение и уведомляем пользователя
             if update.message:
                 await update.message.delete()
                 await update.message.reply_text("⛔ Доступ запрещён")
@@ -59,6 +61,7 @@ async def check_access(update: Update) -> bool:
     except Exception as e:
         logger.error(f"Ошибка проверки доступа: {str(e)}")
         return False
+
 # ------------------------------
 # Главное меню (Reply-кнопки)
 # ------------------------------
