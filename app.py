@@ -490,80 +490,144 @@ async def period_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     # 🔒 Проверка доступа
     if not await check_access(update):
         return
-    
+    # Убедимся, что бот ожидает ввод периода
     if not context.user_data.get("awaiting_period"):
         return
-    
+
+    # Удаляем сообщение пользователя, если возможно
     try:
         await update.message.delete()
     except Exception as e:
         logger.error(f"Не удалось удалить сообщение: {e}")
-    
+
     txt = update.message.text.strip()
     logger.info(f"Ввод периода: {txt}")
-    
+
+    # Обработка команды 'Назад'
     if txt.lower() == "назад":
-        context.user_data["awaiting_period"] = False
-        inline_id = context.user_data.get("inline_msg_id")
+        context.user_data.pop("awaiting_period", None)
+        inline_id = context.user_data.pop("inline_msg_id", None)
         if inline_id:
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("Сегодня", callback_data="period_today"),
-                 InlineKeyboardButton("7 дней", callback_data="period_7days"),
-                 InlineKeyboardButton("За месяц", callback_data="period_month")],
-                [InlineKeyboardButton("Свой период", callback_data="period_custom")],
-                [InlineKeyboardButton("Назад", callback_data="back_menu")]
-            ])
             await telegram_app.bot.edit_message_text(
                 chat_id=update.effective_chat.id,
                 message_id=inline_id,
                 text="Выберите период:",
                 parse_mode="HTML",
-                reply_markup=kb
+                reply_markup=periods_keyboard()
             )
-        context.user_data.pop("inline_msg_id", None)
-        context.user_data["awaiting_period"] = False
         return
-    
+
     parts = txt.split(",")
+    # Проверяем формат ввода
     if len(parts) != 2:
-        await update.message.reply_text("❗ Формат: YYYY-MM-DD,YYYY-MM-DD или 'Назад'")
-        context.user_data["awaiting_period"] = False
-        return
-    
+        context.user_data.pop("awaiting_period", None)
+        return await update.message.reply_text(
+            "❗ Формат: YYYY-MM-DD,YYYY-MM-DD или 'Назад'"
+        )
+
+    # Преобразуем строки в даты
     try:
         st_d = datetime.strptime(parts[0].strip(), "%Y-%m-%d").date()
         ed_d = datetime.strptime(parts[1].strip(), "%Y-%m-%d").date()
-    except:
-        await update.message.reply_text("❗ Ошибка разбора дат.")
-        context.user_data["awaiting_period"] = False
-        return
-    
+    except Exception:
+        context.user_data.pop("awaiting_period", None)
+        return await update.message.reply_text("❗ Ошибка разбора дат.")
+
+    # Проверка порядка дат
     if st_d > ed_d:
-        await update.message.reply_text("❗ Начальная дата больше конечной.")
-        context.user_data["awaiting_period"] = False
-        return
-    
-    # Корректный ввод: обновляем статистику
-    context.user_data["awaiting_period"] = False
-    inline_id = context.user_data.pop("inline_msg_id", None)
-    
-    # Убедимся, что inline_id существует
-    if not inline_id:
-        await update.message.reply_text("❗ Не удалось найти сообщение для обновления.")
-        return
-    
+        context.user_data.pop("awaiting_period", None)
+        return await update.message.reply_text(
+            "❗ Начальная дата больше конечной."
+        )
+
+    # Подготовка дат для запроса
     date_from = f"{st_d} 00:00"
     date_to = f"{ed_d} 23:59"
     lbl = "Свой период"
-    
-    # Используем chat_id из текущего сообщения для редактирования
-    chat_id = update.effective_chat.id
+
+    # Очищаем состояние ожидания
+    context.user_data.pop("awaiting_period", None)
+    inline_id = context.user_data.pop("inline_msg_id", None)
+
+    # Создаем FakeQ для редактирования inline-сообщения
+    class FakeQ:
+        def __init__(self, chat_id, message_id):
+            self.message = type("Msg", (), {})()
+            self.message.chat_id = chat_id
+            self.message.message_id = message_id
+        async def edit_message_text(self, *args, **kwargs):
+            return await telegram_app.bot.edit_message_text(
+                chat_id=self.message.chat_id,
+                message_id=self.message.message_id,
+                *args, **kwargs
+            )
+        async def answer(self):
+            pass
+
+    # Если inline_id не найден, уведомляем пользователя
+    if not inline_id:
+        return await update.message.reply_text(
+            "❗ Не удалось найти сообщение для обновления."
+        )
+
+    # Показываем статистику для введенного периода
+    fquery = FakeQ(update.effective_chat.id, inline_id)
+    await show_stats_screen(fquery, context, date_from, date_to, lbl)
+(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 🔒 Проверка доступа и ожидание
+    if not await check_access(update) or not context.user_data.get("awaiting_period"):
+        return
+    txt = update.message.text.strip()
+    inline_id = context.user_data.get("inline_msg_id")
     try:
-        await show_stats_screen(update.callback_query, context, date_from, date_to, lbl)
-    except AttributeError:
-        # Если это не callback_query, создаем FakeQ с chat_id и inline_id
-        fquery = FakeQ(inline_id, chat_id)
-        await show_stats_screen(fquery, context, date_from, date_to, lbl)
+        await update.message.delete()
+    except:
+        pass
+    # Обработка команды назад
+    if txt.lower() == "назад":
+        context.user_data.pop("awaiting_period", None)
+        context.user_data.pop("inline_msg_id", None)
+        return await telegram_app.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=inline_id,
+            text="Выберите период:",
+            parse_mode="HTML",
+            reply_markup=periods_keyboard()
+        )
+    # Парсинг дат
+    parts = [d.strip() for d in txt.split(",")]
+    if len(parts) != 2:
+        context.user_data.pop("awaiting_period", None)
+        return await update.message.reply_text("❗ Формат: YYYY-MM-DD,YYYY-MM-DD или 'Назад'")
+    try:
+        st_d = datetime.strptime(parts[0], "%Y-%m-%d").date()
+        ed_d = datetime.strptime(parts[1], "%Y-%m-%d").date()
+    except:
+        context.user_data.pop("awaiting_period", None)
+        return await update.message.reply_text("❗ Ошибка разбора дат.")
+    if st_d > ed_d:
+        context.user_data.pop("awaiting_period", None)
+        return await update.message.reply_text("❗ Начальная дата больше конечной.")
+    # Подготовка периодов
+    df = f"{st_d} 00:00"
+    dt = f"{ed_d} 23:59"
+    lbl = "Свой период"
+    # Очистка ожидания
+    context.user_data.pop("awaiting_period", None)
+    context.user_data.pop("inline_msg_id", None)
+    # Создание FakeQ для редактирования inline-сообщения
+    from types import SimpleNamespace
+    fquery = SimpleNamespace(
+        message=SimpleNamespace(chat_id=update.effective_chat.id, message_id=inline_id),
+        edit_message_text=lambda *args, **kwargs: telegram_app.bot.edit_message_text(**{
+            'chat_id': update.effective_chat.id,
+            'message_id': inline_id,
+            **kwargs
+        }),
+        answer=lambda *args, **kwargs: None
+    )
+    # Показ статистики
+    await show_stats_screen(fquery, context, df, dt, lbl)
 
 # ------------------------------
 # Reply-хэндлер для текстовых команд
